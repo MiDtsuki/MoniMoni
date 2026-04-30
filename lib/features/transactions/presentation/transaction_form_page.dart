@@ -12,7 +12,9 @@ import '../domain/transaction_model.dart';
 enum _TransactionMode { income, expense, transfer }
 
 class TransactionFormPage extends ConsumerStatefulWidget {
-  const TransactionFormPage({super.key});
+  const TransactionFormPage({super.key, this.transactionId});
+
+  final String? transactionId;
 
   @override
   ConsumerState<TransactionFormPage> createState() =>
@@ -27,11 +29,34 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   DateTime _dateTime = DateTime.now();
   String? _category;
   String? _account;
+  var _transactionMissing = false;
+
+  bool get _isEditing => widget.transactionId != null;
 
   _TransactionMode get _mode {
     return _type == TransactionType.income
         ? _TransactionMode.income
         : _TransactionMode.expense;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final transactionId = widget.transactionId;
+    if (transactionId == null) {
+      return;
+    }
+    final transaction = _findTransaction(transactionId);
+    if (transaction == null) {
+      _transactionMissing = true;
+      return;
+    }
+    _type = transaction.type;
+    _dateTime = transaction.date;
+    _category = transaction.category;
+    _account = transaction.account;
+    _amountController.text = _formatAmount(transaction.amount);
+    _noteController.text = transaction.note ?? '';
   }
 
   @override
@@ -43,6 +68,52 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_transactionMissing) {
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(
+                      LucideIcons.receiptText,
+                      color: MoniTheme.primaryGreen,
+                      size: 42,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Transaction not found',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'This log entry is no longer available.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: MoniTheme.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    ElevatedButton(
+                      onPressed: () => context.go('/logs'),
+                      child: const Text('Back to logs'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final options = ref.watch(transactionOptionsProvider);
     final categories = options.categoriesFor(_type);
     _category ??= categories.first;
@@ -66,7 +137,9 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                     padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
                     sliver: SliverToBoxAdapter(
                       child: _FormHeader(
-                        title: _type == TransactionType.income
+                        title: _isEditing
+                            ? 'Edit transaction'
+                            : _type == TransactionType.income
                             ? 'Income'
                             : 'Expense',
                         onBack: () => context.go('/logs'),
@@ -150,8 +223,22 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                           const SizedBox(height: 28),
                           ElevatedButton(
                             onPressed: _save,
-                            child: const Text('Save transaction'),
+                            child: Text(
+                              _isEditing ? 'Save changes' : 'Save transaction',
+                            ),
                           ),
+                          if (_isEditing) ...[
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _confirmDelete,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red.shade700,
+                                side: BorderSide(color: Colors.red.shade200),
+                              ),
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Delete transaction'),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -343,17 +430,78 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    final note = _noteController.text.trim();
+    if (_isEditing) {
+      ref
+          .read(transactionControllerProvider.notifier)
+          .updateTransaction(
+            TransactionModel(
+              id: widget.transactionId!,
+              category: _category!,
+              account: _account!,
+              amount: double.parse(_amountController.text),
+              type: _type,
+              date: _dateTime,
+              note: note.isEmpty ? null : note,
+            ),
+          );
+    } else {
+      ref
+          .read(transactionControllerProvider.notifier)
+          .addTransaction(
+            category: _category!,
+            account: _account!,
+            amount: double.parse(_amountController.text),
+            type: _type,
+            date: _dateTime,
+            note: note,
+          );
+    }
+    context.go('/logs');
+  }
+
+  Future<void> _confirmDelete() async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete transaction?'),
+        content: const Text('This log entry will be removed from memory.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
     ref
         .read(transactionControllerProvider.notifier)
-        .addTransaction(
-          category: _category!,
-          account: _account!,
-          amount: double.parse(_amountController.text),
-          type: _type,
-          date: _dateTime,
-          note: _noteController.text,
-        );
+        .deleteTransaction(widget.transactionId!);
     context.go('/logs');
+  }
+
+  TransactionModel? _findTransaction(String id) {
+    for (final transaction in ref.read(transactionControllerProvider)) {
+      if (transaction.id == id) {
+        return transaction;
+      }
+    }
+    return null;
+  }
+
+  String _formatAmount(double amount) {
+    if (amount == amount.roundToDouble()) {
+      return amount.toStringAsFixed(0);
+    }
+    return amount.toStringAsFixed(2);
   }
 }
 

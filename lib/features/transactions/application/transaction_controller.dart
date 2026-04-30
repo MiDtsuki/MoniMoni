@@ -34,6 +34,17 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       ...state,
     ];
   }
+
+  void updateTransaction(TransactionModel transaction) {
+    state = [
+      for (final item in state)
+        if (item.id == transaction.id) transaction else item,
+    ];
+  }
+
+  void deleteTransaction(String id) {
+    state = state.where((item) => item.id != id).toList();
+  }
 }
 
 final transactionOptionsProvider =

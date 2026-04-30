@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../features/auth/presentation/login_page.dart';
+import '../features/auth/presentation/signup_page.dart';
 import '../features/debts/presentation/debt_detail_page.dart';
 import '../features/debts/presentation/debt_form_page.dart';
 import '../features/debts/presentation/debt_page.dart';
@@ -14,8 +16,10 @@ import '../features/transactions/presentation/transaction_form_page.dart';
 import '../features/transactions/presentation/transaction_list_page.dart';
 
 final appRouter = GoRouter(
-  initialLocation: '/logs',
+  initialLocation: '/login',
   routes: [
+    GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
+    GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
         return MoniShell(navigationShell: navigationShell);
@@ -30,6 +34,12 @@ final appRouter = GoRouter(
                 GoRoute(
                   path: 'new',
                   builder: (context, state) => const TransactionFormPage(),
+                ),
+                GoRoute(
+                  path: ':id',
+                  builder: (context, state) => TransactionFormPage(
+                    transactionId: state.pathParameters['id'],
+                  ),
                 ),
               ],
             ),

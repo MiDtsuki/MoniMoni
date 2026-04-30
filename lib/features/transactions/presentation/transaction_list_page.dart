@@ -455,7 +455,10 @@ class _DaySection extends StatelessWidget {
             _DayHeader(date: date, income: income, expenses: expenses),
             const Divider(height: 2, color: Color(0xFFC9DDD1)),
             for (var i = 0; i < transactions.length; i++) ...[
-              _TransactionCompactRow(transaction: transactions[i]),
+              _TransactionCompactRow(
+                transaction: transactions[i],
+                onTap: () => context.go('/logs/${transactions[i].id}'),
+              ),
               if (i != transactions.length - 1)
                 const Divider(
                   height: 1,
@@ -573,66 +576,76 @@ class _DailyAmount extends StatelessWidget {
 }
 
 class _TransactionCompactRow extends StatelessWidget {
-  const _TransactionCompactRow({required this.transaction});
+  const _TransactionCompactRow({
+    required this.transaction,
+    required this.onTap,
+  });
 
   final TransactionModel transaction;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final isIncome = transaction.type == TransactionType.income;
     final amountColor = isIncome ? MoniTheme.primaryGreen : MoniTheme.deepGreen;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 28,
-            child: Text(
-              _categoryEmoji(transaction.category),
-              style: const TextStyle(fontSize: 20),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 3,
-            child: Text(
-              _categoryName(transaction.category),
-              style: const TextStyle(
-                color: MoniTheme.ink,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              transaction.account,
-              style: const TextStyle(
-                color: MoniTheme.muted,
-                fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 10),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 130),
-            child: FittedBox(
-              child: Text(
-                CurrencyFormatter.compact(transaction.amount),
-                style: TextStyle(
-                  color: amountColor,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 28,
+                child: Text(
+                  _categoryEmoji(transaction.category),
+                  style: const TextStyle(fontSize: 20),
+                  textAlign: TextAlign.center,
                 ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  _categoryName(transaction.category),
+                  style: const TextStyle(
+                    color: MoniTheme.ink,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  transaction.account,
+                  style: const TextStyle(
+                    color: MoniTheme.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: FittedBox(
+                  child: Text(
+                    CurrencyFormatter.compact(transaction.amount),
+                    style: TextStyle(
+                      color: amountColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
