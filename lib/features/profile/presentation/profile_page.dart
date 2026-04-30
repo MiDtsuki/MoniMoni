@@ -13,6 +13,7 @@ import '../../debts/application/friends_controller.dart';
 import '../../debts/domain/friend_model.dart';
 import '../../transactions/application/transaction_controller.dart';
 import '../application/notification_controller.dart';
+import '../application/profile_settings_controller.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -26,6 +27,7 @@ class ProfilePage extends ConsumerWidget {
     final totalBorrowed = ref.watch(totalBorrowedProvider);
     final debtNet = ref.watch(netDebtProvider);
     final notificationCount = ref.watch(pendingNotificationCountProvider);
+    final settings = ref.watch(profileSettingsProvider);
     final finalSummary = monthlyIncome - monthlyExpense + debtNet;
 
     return AppPage(
@@ -43,9 +45,12 @@ class ProfilePage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _UserHeader(notificationCount: notificationCount),
+          const _UserHeader(),
           const SizedBox(height: 16),
-          _FinalSummaryCard(value: finalSummary),
+          _FinalSummaryCard(
+            value: finalSummary,
+            symbol: settings.currency.symbol,
+          ),
           const SizedBox(height: 16),
           _DashboardGrid(
             cards: [
@@ -53,34 +58,42 @@ class ProfilePage extends ConsumerWidget {
                 label: 'Current month income',
                 value: monthlyIncome,
                 icon: LucideIcons.arrowDownLeft,
+                symbol: settings.currency.symbol,
               ),
               _DashboardMetric(
                 label: 'Current month expenses',
                 value: monthlyExpense,
                 icon: LucideIcons.arrowUpRight,
+                symbol: settings.currency.symbol,
               ),
               _DashboardMetric(
                 label: 'Current month balance',
                 value: monthlyBalance,
                 icon: LucideIcons.wallet,
+                symbol: settings.currency.symbol,
               ),
               _DashboardMetric(
                 label: 'Total lent',
                 value: totalLent,
                 icon: LucideIcons.handCoins,
+                symbol: settings.currency.symbol,
               ),
               _DashboardMetric(
                 label: 'Total borrowed',
                 value: totalBorrowed,
                 icon: LucideIcons.banknoteArrowDown,
+                symbol: settings.currency.symbol,
               ),
               _DashboardMetric(
                 label: 'True debt net total',
                 value: debtNet,
                 icon: LucideIcons.scale,
+                symbol: settings.currency.symbol,
               ),
             ],
           ),
+          const SizedBox(height: 18),
+          _SettingsSection(currency: settings.currency),
           const SizedBox(height: 18),
           const _AddFriendSection(),
         ],
@@ -90,9 +103,7 @@ class ProfilePage extends ConsumerWidget {
 }
 
 class _UserHeader extends StatelessWidget {
-  const _UserHeader({required this.notificationCount});
-
-  final int notificationCount;
+  const _UserHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -126,27 +137,6 @@ class _UserHeader extends StatelessWidget {
               ],
             ),
           ),
-          if (notificationCount > 0)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: MoniTheme.softGreen,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                child: Text(
-                  '$notificationCount pending',
-                  style: const TextStyle(
-                    color: MoniTheme.primaryGreen,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -154,9 +144,10 @@ class _UserHeader extends StatelessWidget {
 }
 
 class _FinalSummaryCard extends StatelessWidget {
-  const _FinalSummaryCard({required this.value});
+  const _FinalSummaryCard({required this.value, required this.symbol});
 
   final double value;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -179,7 +170,7 @@ class _FinalSummaryCard extends StatelessWidget {
                 const Text('Overall financial summary'),
                 const SizedBox(height: 6),
                 Text(
-                  CurrencyFormatter.compact(value),
+                  CurrencyFormatter.withSymbol(value, symbol),
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 4),
@@ -198,11 +189,13 @@ class _DashboardMetric {
     required this.label,
     required this.value,
     required this.icon,
+    required this.symbol,
   });
 
   final String label;
   final double value;
   final IconData icon;
+  final String symbol;
 }
 
 class _DashboardGrid extends StatelessWidget {
@@ -251,12 +244,114 @@ class _MetricCard extends StatelessWidget {
           Text(metric.label),
           const SizedBox(height: 8),
           Text(
-            CurrencyFormatter.compact(metric.value),
+            CurrencyFormatter.withSymbol(metric.value, metric.symbol),
             style: Theme.of(context).textTheme.titleLarge,
           ),
         ],
       ),
     );
+  }
+}
+
+class _SettingsSection extends ConsumerWidget {
+  const _SettingsSection({required this.currency});
+
+  final CurrencyOption currency;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return MoniCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.settings, color: MoniTheme.primaryGreen),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Configure',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const CircleAvatar(
+              backgroundColor: MoniTheme.softGreen,
+              child: Icon(
+                LucideIcons.circleDollarSign,
+                color: MoniTheme.primaryGreen,
+              ),
+            ),
+            title: const Text('Currency'),
+            subtitle: Text('${currency.code} · ${currency.name}'),
+            trailing: Text(
+              currency.symbol,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            onTap: () => _showCurrencyPicker(context, ref),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showCurrencyPicker(BuildContext context, WidgetRef ref) async {
+    final selected = await showModalBottomSheet<CurrencyOption>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Choose currency',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  for (final option in supportedCurrencies)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: option.code == currency.code
+                            ? MoniTheme.softGreen
+                            : const Color(0xFFF0F2EF),
+                        child: Text(
+                          option.symbol,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      title: Text('${option.code} · ${option.name}'),
+                      trailing: option.code == currency.code
+                          ? const Icon(
+                              LucideIcons.check,
+                              color: MoniTheme.primaryGreen,
+                            )
+                          : null,
+                      onTap: () => Navigator.of(context).pop(option),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null) {
+      return;
+    }
+    ref.read(profileSettingsProvider.notifier).setCurrency(selected);
   }
 }
 
