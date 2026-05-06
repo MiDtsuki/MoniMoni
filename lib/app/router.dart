@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/signup_page.dart';
@@ -14,11 +15,33 @@ import '../features/profile/presentation/profile_page.dart';
 import '../features/stats/presentation/stats_page.dart';
 import '../features/transactions/presentation/transaction_form_page.dart';
 import '../features/transactions/presentation/transaction_list_page.dart';
+import '../data/local/db_test_page.dart';
+
+class _AuthChangeNotifier extends ChangeNotifier {
+  _AuthChangeNotifier() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+  }
+}
+
+final _authNotifier = _AuthChangeNotifier();
 
 final appRouter = GoRouter(
   initialLocation: '/login',
+  refreshListenable: _authNotifier,
+  redirect: (context, state) {
+    final loggedIn =
+        Supabase.instance.client.auth.currentSession != null;
+    final isAuthRoute = state.matchedLocation == '/login' ||
+        state.matchedLocation == '/signup';
+    if (!loggedIn && !isAuthRoute) return '/login';
+    if (loggedIn && isAuthRoute) return '/logs';
+    return null;
+  },
   routes: [
     GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
+    GoRoute(path: '/db-test', builder: (context, state) => const DbTestPage()),
     GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {

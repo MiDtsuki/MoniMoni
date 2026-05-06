@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
 
@@ -13,9 +14,10 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController(text: 'alex@moni.app');
-  final _passwordController = TextEditingController(text: 'demo1234');
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   var _obscurePassword = true;
+  var _loading = false;
 
   @override
   void dispose() {
@@ -83,14 +85,15 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 8),
             ElevatedButton.icon(
-              onPressed: _submit,
-              icon: const Icon(LucideIcons.logIn),
+              onPressed: _loading ? null : _submit,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(LucideIcons.logIn),
               label: const Text('Log in'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: () => context.go('/logs'),
-              child: const Text('Continue demo'),
             ),
             const SizedBox(height: 20),
             _AuthSwitchRow(
@@ -104,11 +107,30 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) {
-      return;
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _loading = true);
+
+    try {
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (mounted) context.go('/logs');
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unexpected error: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    context.go('/logs');
   }
 }
 

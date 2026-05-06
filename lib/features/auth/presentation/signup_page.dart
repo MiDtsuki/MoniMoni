@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
 import 'login_page.dart';
@@ -20,7 +21,7 @@ class _SignupPageState extends State<SignupPage> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   var _obscurePassword = true;
-  var _acceptedTerms = true;
+  var _loading = false;
 
   @override
   void dispose() {
@@ -36,7 +37,7 @@ class _SignupPageState extends State<SignupPage> {
   Widget build(BuildContext context) {
     return AuthScaffold(
       title: 'Create account',
-      subtitle: 'Set up a demo profile for the Moni finance dashboard.',
+      subtitle: 'Set up your Moni finance dashboard.',
       child: Form(
         key: _formKey,
         child: Column(
@@ -67,9 +68,7 @@ class _SignupPageState extends State<SignupPage> {
               ),
               validator: (value) {
                 final username = value?.trim() ?? '';
-                if (username.isEmpty) {
-                  return 'Choose a username';
-                }
+                if (username.isEmpty) return 'Choose a username';
                 if (username.length < 3) {
                   return 'Username must be at least 3 characters';
                 }
@@ -99,9 +98,8 @@ class _SignupPageState extends State<SignupPage> {
                 prefixIcon: const Icon(LucideIcons.lockKeyhole),
                 suffixIcon: IconButton(
                   tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                  onPressed: () {
-                    setState(() => _obscurePassword = !_obscurePassword);
-                  },
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                   icon: Icon(
                     _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
                   ),
@@ -127,29 +125,21 @@ class _SignupPageState extends State<SignupPage> {
               },
               onFieldSubmitted: (_) => _submit(),
             ),
-            const SizedBox(height: 10),
-            CheckboxListTile(
-              value: _acceptedTerms,
-              onChanged: (value) {
-                setState(() => _acceptedTerms = value ?? false);
-              },
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: const Text(
-                'Use demo-only account data',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('No backend account will be created.'),
-            ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: _submit,
-              icon: const Icon(LucideIcons.userPlus),
+              onPressed: _loading ? null : _submit,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(LucideIcons.userPlus),
               label: const Text('Sign up'),
             ),
             const SizedBox(height: 20),
             _AuthSwitchRow(
-              text: 'Already have a demo account?',
+              text: 'Already have an account?',
               action: 'Log in',
               onPressed: () => context.go('/login'),
             ),
@@ -159,17 +149,63 @@ class _SignupPageState extends State<SignupPage> {
     );
   }
 
-  void _submit() {
-    if (!_acceptedTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Confirm demo-only account data first.')),
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _loading = true);
+
+    try {
+      final response = await Supabase.instance.client.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        data: {
+          'display_name': _nameController.text.trim(),
+          'username': _usernameController.text.trim(),
+        },
       );
-      return;
+
+      if (!mounted) return;
+
+      if (response.session != null) {
+        // Email confirmation disabled — logged in immediately
+        context.go('/logs');
+      } else {
+        // Email confirmation required
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Check your email to confirm your account.'),
+            duration: Duration(seconds: 6),
+          ),
+        );
+        context.go('/login');
+      }
+    } on AuthException catch (e) {
+      debugPrint('=== SIGNUP AuthException ===');
+      debugPrint('message: ${e.message}');
+      debugPrint('statusCode: ${e.statusCode}');
+      debugPrint('===========================');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('[${e.statusCode}] ${e.message}'),
+          duration: const Duration(seconds: 10),
+        ),
+      );
+    } catch (e, stack) {
+      debugPrint('=== SIGNUP Unexpected error ===');
+      debugPrint('$e');
+      debugPrint('$stack');
+      debugPrint('==============================');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$e'),
+          duration: const Duration(seconds: 10),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-    context.go('/logs');
   }
 }
 
@@ -205,9 +241,7 @@ class _AuthSwitchRow extends StatelessWidget {
 
 String? _validateEmail(String? value) {
   final trimmed = value?.trim() ?? '';
-  if (trimmed.isEmpty) {
-    return 'Enter your email';
-  }
+  if (trimmed.isEmpty) return 'Enter your email';
   if (!trimmed.contains('@') || !trimmed.contains('.')) {
     return 'Enter a valid email';
   }
@@ -215,11 +249,7 @@ String? _validateEmail(String? value) {
 }
 
 String? _validatePassword(String? value) {
-  if (value == null || value.isEmpty) {
-    return 'Enter your password';
-  }
-  if (value.length < 6) {
-    return 'Password must be at least 6 characters';
-  }
+  if (value == null || value.isEmpty) return 'Enter your password';
+  if (value.length < 6) return 'Password must be at least 6 characters';
   return null;
 }

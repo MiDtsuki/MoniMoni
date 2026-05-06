@@ -232,6 +232,13 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
     super.dispose();
   }
 
+  Future<void> _search(String value) async {
+    final results = await ref
+        .read(friendsControllerProvider.notifier)
+        .searchUsers(value);
+    if (mounted) setState(() => _results = results);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -248,19 +255,13 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
                 labelText: 'Search username',
                 prefixIcon: Icon(LucideIcons.search),
               ),
-              onChanged: (value) {
-                setState(() {
-                  _results = ref
-                      .read(friendsControllerProvider.notifier)
-                      .searchUsers(value);
-                });
-              },
+              onChanged: _search,
             ),
             const SizedBox(height: 12),
             if (_controller.text.isNotEmpty && _results.isEmpty)
               const EmptyState(
                 title: 'No users found',
-                message: 'Try a mock username like @sofia, @ethan, or @lina.',
+                message: 'Try searching by username.',
                 icon: LucideIcons.search,
               )
             else

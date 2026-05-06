@@ -30,6 +30,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   String? _category;
   String? _account;
   var _transactionMissing = false;
+  var _saving = false;
 
   bool get _isEditing => widget.transactionId != null;
 
@@ -143,7 +144,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                             ? 'Income'
                             : 'Expense',
                         onBack: () => context.go('/logs'),
-                        onSave: _save,
+                        onSave: _saving ? null : () { _save(); },
                       ),
                     ),
                   ),
@@ -222,10 +223,20 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                           ),
                           const SizedBox(height: 28),
                           ElevatedButton(
-                            onPressed: _save,
-                            child: Text(
-                              _isEditing ? 'Save changes' : 'Save transaction',
-                            ),
+                            onPressed: _saving ? null : _save,
+                            child: _saving
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    _isEditing
+                                        ? 'Save changes'
+                                        : 'Save transaction',
+                                  ),
                           ),
                           if (_isEditing) ...[
                             const SizedBox(height: 12),
@@ -426,38 +437,45 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     );
   }
 
-  void _save() {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
     final note = _noteController.text.trim();
-    if (_isEditing) {
-      ref
-          .read(transactionControllerProvider.notifier)
-          .updateTransaction(
-            TransactionModel(
-              id: widget.transactionId!,
+    try {
+      if (_isEditing) {
+        await ref
+            .read(transactionControllerProvider.notifier)
+            .updateTransaction(
+              TransactionModel(
+                id: widget.transactionId!,
+                category: _category!,
+                account: _account!,
+                amount: double.parse(_amountController.text),
+                type: _type,
+                date: _dateTime,
+                note: note.isEmpty ? null : note,
+              ),
+            );
+      } else {
+        await ref
+            .read(transactionControllerProvider.notifier)
+            .addTransaction(
               category: _category!,
               account: _account!,
               amount: double.parse(_amountController.text),
               type: _type,
               date: _dateTime,
-              note: note.isEmpty ? null : note,
-            ),
-          );
-    } else {
-      ref
-          .read(transactionControllerProvider.notifier)
-          .addTransaction(
-            category: _category!,
-            account: _account!,
-            amount: double.parse(_amountController.text),
-            type: _type,
-            date: _dateTime,
-            note: note,
-          );
+              note: note,
+            );
+      }
+      if (mounted) context.go('/logs');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save: $e')),
+      );
     }
-    context.go('/logs');
   }
 
   Future<void> _confirmDelete() async {
@@ -514,7 +532,7 @@ class _FormHeader extends StatelessWidget {
 
   final String title;
   final VoidCallback onBack;
-  final VoidCallback onSave;
+  final VoidCallback? onSave;
 
   @override
   Widget build(BuildContext context) {

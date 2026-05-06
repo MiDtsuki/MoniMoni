@@ -10,6 +10,14 @@ class FriendModel {
     required this.username,
   });
 
+  factory FriendModel.fromJson(Map<String, dynamic> json) {
+    return FriendModel(
+      id: json['id'] as String,
+      name: json['display_name'] as String? ?? '',
+      username: json['username'] as String? ?? '',
+    );
+  }
+
   final String id;
   final String name;
   final String username;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/utils/currency_formatter.dart';
@@ -96,17 +97,25 @@ class ProfilePage extends ConsumerWidget {
           _SettingsSection(currency: settings.currency),
           const SizedBox(height: 18),
           const _AddFriendSection(),
+          const SizedBox(height: 18),
+          _SignOutButton(),
         ],
       ),
     );
   }
 }
 
-class _UserHeader extends StatelessWidget {
+class _UserHeader extends ConsumerWidget {
   const _UserHeader();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(profileSettingsProvider);
+    final displayName =
+        settings.displayName.isNotEmpty ? settings.displayName : 'Loading…';
+    final username =
+        settings.username.isNotEmpty ? '@${settings.username}' : '';
+
     return MoniCard(
       child: Row(
         children: [
@@ -129,15 +138,34 @@ class _UserHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Alex Morgan',
+                  displayName,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 4),
-                const Text('@alex'),
+                if (username.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(username),
+                ],
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SignOutButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          await Supabase.instance.client.auth.signOut();
+          if (context.mounted) context.go('/login');
+        },
+        icon: const Icon(LucideIcons.logOut),
+        label: const Text('Sign out'),
       ),
     );
   }
@@ -348,9 +376,7 @@ class _SettingsSection extends ConsumerWidget {
         ),
       ),
     );
-    if (selected == null) {
-      return;
-    }
+    if (selected == null) return;
     ref.read(profileSettingsProvider.notifier).setCurrency(selected);
   }
 }
@@ -372,6 +398,13 @@ class _AddFriendSectionState extends ConsumerState<_AddFriendSection> {
     super.dispose();
   }
 
+  Future<void> _search(String value) async {
+    final results = await ref
+        .read(friendsControllerProvider.notifier)
+        .searchUsers(value);
+    if (mounted) setState(() => _results = results);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MoniCard(
@@ -380,30 +413,21 @@ class _AddFriendSectionState extends ConsumerState<_AddFriendSection> {
         children: [
           Text('Add friend', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 6),
-          const Text(
-            'Search a mock user by username and send a friend request.',
-          ),
+          const Text('Search by username and send a friend request.'),
           const SizedBox(height: 14),
           TextField(
             controller: _controller,
             decoration: const InputDecoration(
               labelText: 'Username',
-              hintText: '@sofia',
               prefixIcon: Icon(LucideIcons.search),
             ),
-            onChanged: (value) {
-              setState(() {
-                _results = ref
-                    .read(friendsControllerProvider.notifier)
-                    .searchUsers(value);
-              });
-            },
+            onChanged: _search,
           ),
           const SizedBox(height: 12),
           if (_controller.text.isNotEmpty && _results.isEmpty)
             const EmptyState(
               title: 'No users found',
-              message: 'Try @sofia, @ethan, or @lina from the mock user list.',
+              message: 'Try searching by username.',
               icon: LucideIcons.search,
             )
           else
