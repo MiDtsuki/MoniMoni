@@ -2,7 +2,34 @@
 
 ## Project
 Moni is a Flutter finance app for mobile and web.
-Offline-first: local Drift (SQLite) is the source of truth for the UI. A background sync engine reconciles with Supabase.
+
+The intended product direction is offline-first:
+- Drift/SQLite should become the UI source of truth.
+- A background sync layer should reconcile local changes with Supabase.
+
+## Current Repo Reality
+This repository is not at the intended offline-first architecture yet.
+
+What exists now:
+- Flutter UI for auth, transactions, debts, stats, profile, and inbox
+- Riverpod state built with `StateNotifier` and simple `Provider`s
+- Supabase auth and table access wired directly into controllers
+- Auth guard in the router — unauthenticated users are redirected to login
+- Real signup and login via Supabase Auth with a `handle_new_user` trigger
+- Full Supabase schema checked into `supabase/schema.sql`
+- A minimal Drift database shell with no tables or DAOs powering app features yet
+- `lib/core/providers/supabase_providers.dart` providing the client and current user
+
+What is not done yet:
+- Drift-backed repositories for any app feature
+- Offline-first read/write flow
+- Sync engine and conflict handling
+- Realtime-to-Drift reconciliation
+- Full clean architecture separation
+- Migration to `AsyncNotifier`
+- Freezed domain models across the app
+
+Agents working here should preserve momentum toward the target architecture without pretending the migration is complete.
 
 ## Tech Stack
 | Layer | Package |
@@ -19,153 +46,150 @@ Offline-first: local Drift (SQLite) is the source of truth for the UI. A backgro
 | Code generation | `build_runner`, `drift_dev` |
 
 ## Architecture
-Five layers. Dependency direction: Presentation → Application → Domain ← Data ← Backend.
-Domain never imports Flutter or any external package.
+Target dependency direction:
+
+`Presentation → Application → Domain ← Data ← Backend`
+
+Rules:
+- Domain should remain pure Dart.
+- Presentation should not talk to Supabase directly.
+- Application should depend on repository abstractions, not transport details.
+- Data should own local/remote coordination.
+
+Target structure:
 
 ```
 lib/
   domain/
-    models/          # freezed entities: Transaction, Debt, AppUser, Inbox
-    repositories/    # abstract repository interfaces (pure Dart)
-    usecases/        # business rules (optional, use when logic is non-trivial)
+    models/
+    repositories/
+    usecases/
 
   application/
-    transaction/     # TransactionCtrl (AsyncNotifier)
-    debt/            # DebtCtrl (AsyncNotifier)
-    stats/           # StatsCtrl (AsyncNotifier)
-    friends/         # FriendsCtrl (AsyncNotifier)
-    inbox/           # InboxCtrl (AsyncNotifier)
+    transaction/
+    debt/
+    stats/
+    friends/
+    inbox/
 
   data/
     local/
-      drift_db.dart  # AppDatabase (@DriftDatabase), all DAOs
-      daos/          # TransactionDao, DebtDao, UserDao, InboxDao
-      tables/        # Drift table definitions
+      drift_db.dart
+      daos/
+      tables/
     remote/
-      supabase_client.dart   # singleton SupabaseClient provider
+      supabase_client.dart
       transaction_remote.dart
       debt_remote.dart
       user_remote.dart
-    repositories/    # concrete implementations: coordinate Local + Remote
+    repositories/
     sync/
-      sync_engine.dart  # background reconciliation: Drift ↔ Supabase
+      sync_engine.dart
 
   presentation/
-    router.dart      # GoRouter definition
+    router.dart
     screens/
-      transactions/  # TransactionListScreen, AddTransactionScreen
-      debts/         # DebtListScreen, BorrowScreen, LendScreen, SettleScreen
-      stats/         # StatsScreen (pie chart, totals)
-      profile/       # ProfileScreen (user info, currency)
-      inbox/         # InboxScreen (friend/debt/settlement requests)
-    widgets/         # shared reusable widgets
+      transactions/
+      debts/
+      stats/
+      profile/
+      inbox/
+    widgets/
 
-  main.dart          # ProviderScope + SupabaseInit + runApp only
+  main.dart
 ```
 
-## Postgres Schema (Supabase)
-```sql
--- users managed by Supabase Auth; extend with:
-create table profiles (
-  id          uuid primary key references auth.users(id),
-  display_name text not null,
-  currency    text not null default 'THB',
-  created_at  timestamptz default now()
-);
+Current code does not fully match this structure. Controllers talk to Supabase directly — there are no repository interfaces or DAOs yet. When making changes:
+- prefer moving new work toward this layout
+- avoid large opportunistic rewrites unless explicitly requested
+- keep working features stable while migrating incrementally
 
-create table transactions (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references profiles(id),
-  type        text not null check (type in ('income','expense')),
-  category    text not null,
-  amount      numeric(12,2) not null,
-  note        text,
-  date        date not null,
-  created_at  timestamptz default now(),
-  updated_at  timestamptz default now(),
-  deleted_at  timestamptz          -- soft delete for sync
-);
+## Database And Backend
+Supabase is the active backend.
 
-create table debts (
-  id           uuid primary key default gen_random_uuid(),
-  owner_id     uuid not null references profiles(id),
-  counterpart_id uuid not null references profiles(id),
-  direction    text not null check (direction in ('borrow','lend')),
-  amount       numeric(12,2) not null,
-  description  text,
-  status       text not null default 'pending' check (status in ('pending','settled')),
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now(),
-  deleted_at   timestamptz
-);
+Current backend-related assets:
+- Auth via `supabase_flutter` (signup, login, signout, auth guard in router)
+- Full schema and RLS policies in `supabase/schema.sql` — this is the source of truth for the DB shape
+- Transactions, debts, friends, inbox, and profile flows wired against Supabase tables via controllers
 
-create table inbox_items (
-  id           uuid primary key default gen_random_uuid(),
-  recipient_id uuid not null references profiles(id),
-  sender_id    uuid not null references profiles(id),
-  type         text not null check (type in ('friend_request','debt_request','settlement_request')),
-  payload      jsonb,
-  status       text not null default 'pending' check (status in ('pending','accepted','rejected')),
-  created_at   timestamptz default now()
-);
+Tables in use:
+- `profiles` — extended from `auth.users` via trigger, stores display_name, username, currency
+- `transactions` — income/expense logs per user, with soft delete via `deleted_at`
+- `friendships` — bidirectional friend relationships
+- `debts` — lend/borrow records with direction from owner's perspective
+- `inbox_items` — friend, debt, and settlement requests with payload jsonb
 
--- Enable RLS on all tables. Each user sees only their own rows.
-alter table profiles      enable row level security;
-alter table transactions  enable row level security;
-alter table debts         enable row level security;
-alter table inbox_items   enable row level security;
-```
+Drift is also in scope but currently only has a shell (`AppDatabase` with no tables).
 
-## Offline-First Sync Rules
-- **Read path:** UI always reads from Drift. Never query Supabase directly from a screen or notifier.
-- **Write path:** Write to Drift first (optimistic), mark row `synced = false`, return immediately. Sync engine pushes to Supabase in background.
-- **Sync engine:** On connectivity restore, `SyncEngine` upserts all `synced = false` rows to Supabase and pulls remote changes since `last_synced_at`.
-- **Soft deletes:** Use `deleted_at` timestamp. Never hard-delete locally until sync confirms remote deletion.
-- **Conflicts:** Last-write-wins on `updated_at`. Remote wins on conflict for shared rows (debts, inbox).
-- **Realtime:** Subscribe to Supabase Realtime for `debts` and `inbox_items` tables to push live updates into Drift.
+When working on persistence:
+- prefer implementing real Drift tables and DAOs instead of expanding direct Supabase access
+- keep local schema and Supabase schema conceptually aligned
+- never hard-delete feature rows when soft delete is expected
 
-## Coding Rules
-- All state lives in Riverpod `AsyncNotifier` — no `setState`, no `ValueNotifier`, no singletons.
-- `main.dart` only: `SupabaseInit`, `ProviderScope`, `runApp`. Nothing else.
-- All domain models use `freezed` — `copyWith`, `==`, `hashCode` generated, fields immutable.
-- All DAOs return domain models, not Drift `DataClass` rows — map at the DAO boundary.
-- Repository interfaces live in `domain/repositories/`. Implementations live in `data/repositories/`.
-- Notifiers depend on repository interfaces, not concrete implementations (inject via Riverpod).
-- Amount fields: numeric keyboard, validate numbers only, reject non-numeric input.
-- Date fields: default to `DateTime.now()`, use a date picker widget.
-- Forms: validate before submit, show inline error messages.
-- Use `uuid` for all entity IDs generated client-side. Supabase `gen_random_uuid()` for server rows.
-- Use `intl` for all currency and date formatting.
-- Never use `dynamic`. Be explicit with types everywhere.
+## State Management
+Current state is Riverpod `StateNotifier`.
+Target state is Riverpod `AsyncNotifier` where async loading and persistence matter.
 
-## Design Rules
-- Primary color: soft green — `Color(0xFF4CAF7D)` or equivalent.
-- Background: white or light grey — no dark mode unless asked.
-- Cards: `BorderRadius.circular(16)`, subtle box shadow.
-- Typography: minimal — only show text that earns its place.
-- Icons: `lucide_icons_flutter` only. Fall back to Material Icons only if lucide lacks the icon.
-- Layout: mobile-first. Use `LayoutBuilder` or `MediaQuery` for responsive breakpoints.
-- No hardcoded pixel widths for content — use flex, constraints, or percentages.
-- Padding: multiples of 8px throughout.
+Instructions:
+- do not introduce `setState` for app-level data flow
+- local widget interaction state is acceptable temporarily, but business state belongs in Riverpod
+- prefer repository-backed notifiers over table-access code inside controllers
+- migrate toward `AsyncNotifier` for feature controllers when touching that area substantially
 
-## Features in Scope
+## Models
+Target rule: domain models should use `freezed`.
+
+Current reality: all models are hand-written immutable classes with manual `copyWith`, `fromJson`, and `toJson`.
+
+Instructions:
+- do not mix `dynamic` into model boundaries
+- prefer explicit typed mapping
+- if you introduce or heavily revise a domain model, bias toward `freezed`
+
+## Offline-First Rules
+These are the target rules for future work:
+- UI reads should come from Drift, not Supabase.
+- Writes should go local first, then sync outward.
+- Use `deleted_at` for soft deletes.
+- Sync should use `updated_at` and `last_synced_at` style reconciliation.
+- Shared-row conflicts should resolve deterministically.
+- Realtime should feed local state, not bypass it.
+
+Until that migration exists:
+- do not add more direct Supabase access in screens
+- avoid expanding controller-level table access if a repository boundary can be introduced instead
+- treat existing direct Supabase calls as transition-state code, not the desired end state
+
+## UI And Design
+- Primary color: soft green — `Color(0xFF4CAF7D)`
+- Background: white or light grey — no dark mode unless asked
+- Cards: `BorderRadius.circular(16)`, subtle box shadow
+- Typography: minimal — only show text that earns its place
+- Icons: `lucide_icons_flutter` first, Material Icons only if lucide lacks the icon
+- Layout: mobile-first, use `LayoutBuilder` or `MediaQuery` for responsive breakpoints
+- Padding: multiples of 8px throughout
+- No hardcoded pixel widths for content — use flex, constraints, or percentages
+
+## Features In Scope
 1. Income and expense logging (add, edit, soft-delete transactions)
 2. Debt tracking — borrow, lend, settle between friends
 3. Statistics screen — pie chart by category, income vs expense totals
-4. Profile dashboard — display name, currency preference
+4. Profile dashboard — display name, currency preference, sign out
 5. Inbox — friend requests, debt requests, settlement requests
 
-## What NOT to Do
+## What Not To Do
+- Do not claim the app is offline-first — it is not yet.
 - Do not add features outside the scope list above unless asked.
-- Do not query Supabase from screens or notifiers — go through the repository.
-- Do not bypass the offline-first rule even for "simple" reads.
+- Do not query Supabase directly from screens — go through a provider or controller.
 - Do not hardcode UI in `main.dart`.
 - Do not refactor working code while fixing a bug — fix only what is broken.
 - Do not add comments that just describe what the code does.
-- Do not leave TODO comments in finished code.
 - Do not hard-delete rows — always soft-delete via `deleted_at`.
+- Do not add Firebase or another backend.
+- Do not bypass Riverpod for feature state.
 
 ## File Naming
+Preferred naming moving forward:
 - Screens: `*_screen.dart`
 - Widgets: descriptive name or `*_widget.dart`
 - Notifiers: `*_notifier.dart`
@@ -176,9 +200,19 @@ alter table inbox_items   enable row level security;
 - Repository implementations: `*_repository_impl.dart` (in data)
 - Models: singular noun — `transaction.dart`, `debt.dart`, `app_user.dart`
 
+Existing files do not all follow this yet. Do not rename broad swaths of files unless requested.
+
 ## Code Generation
-Run after any change to freezed models, drift tables, or DAOs:
+Run after any change to Drift tables, DAOs, or Freezed models:
 ```
 flutter pub run build_runner build --delete-conflicting-outputs
 ```
 Generated files (`*.freezed.dart`, `*.g.dart`) are committed to the repo.
+
+## Review Priorities
+When reviewing or modifying this repo, prioritize:
+- runtime breakage over style
+- architecture regressions over superficial cleanup
+- places where current code contradicts the intended offline-first direction
+- silent error swallowing and brittle state assumptions
+- expanding direct Supabase access in places that should have a repository boundary
