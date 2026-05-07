@@ -13,23 +13,79 @@ import '../application/friends_controller.dart';
 import '../domain/debt_model.dart';
 import 'widgets/debt_tile.dart';
 
-class DebtDetailPage extends ConsumerWidget {
+class DebtDetailPage extends ConsumerStatefulWidget {
   const DebtDetailPage({required this.friendId, super.key});
 
   final String friendId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DebtDetailPage> createState() => _DebtDetailPageState();
+}
+
+class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
+  bool _settling = false;
+  final Set<String> _settlingDebtIds = {};
+
+  Future<void> _settleAll(String friendId) async {
+    setState(() => _settling = true);
+    try {
+      await ref
+          .read(debtControllerProvider.notifier)
+          .createSettleAllRequest(friendId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Settlement request sent — check your inbox.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _settling = false);
+    }
+  }
+
+  Future<void> _settleOne(String debtId) async {
+    setState(() => _settlingDebtIds.add(debtId));
+    try {
+      await ref
+          .read(debtControllerProvider.notifier)
+          .createSettlementRequest(debtId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Settlement request sent — check your inbox.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _settlingDebtIds.remove(debtId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final friend = ref
         .watch(friendsControllerProvider)
         .friends
-        .firstWhere((item) => item.id == friendId);
+        .firstWhere((item) => item.id == widget.friendId);
     final debtState = ref.watch(debtControllerProvider);
-    final debts = debtsForFriend(debtState, friendId);
+    final debts = debtsForFriend(debtState, widget.friendId);
     final lent = lentToFriend(debts);
     final borrowed = borrowedFromFriend(debts);
     final net = lent - borrowed;
-    final activeDebts = debts.where((debt) => debt.status == DebtStatus.active);
+    final activeDebts = debts.where((d) => d.status == DebtStatus.active);
 
     return Scaffold(
       body: AppPage(
@@ -53,21 +109,9 @@ class DebtDetailPage extends ConsumerWidget {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    _MetricCard(
-                      label: 'Lent to friend',
-                      value: lent,
-                      width: width,
-                    ),
-                    _MetricCard(
-                      label: 'Borrowed from friend',
-                      value: borrowed,
-                      width: width,
-                    ),
-                    _MetricCard(
-                      label: 'Final net amount',
-                      value: net,
-                      width: width,
-                    ),
+                    _MetricCard(label: 'Lent to friend', value: lent, width: width),
+                    _MetricCard(label: 'Borrowed from friend', value: borrowed, width: width),
+                    _MetricCard(label: 'Final net amount', value: net, width: width),
                   ],
                 );
               },
@@ -76,15 +120,16 @@ class DebtDetailPage extends ConsumerWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: activeDebts.isEmpty
+                onPressed: activeDebts.isEmpty || _settling
                     ? null
-                    : () {
-                        ref
-                            .read(debtControllerProvider.notifier)
-                            .createSettleAllRequest(friendId);
-                        context.go('/profile/inbox');
-                      },
-                child: const Text('Settle All'),
+                    : () => _settleAll(widget.friendId),
+                child: _settling
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Settle All'),
               ),
             ),
             const SizedBox(height: 24),
@@ -103,12 +148,8 @@ class DebtDetailPage extends ConsumerWidget {
                   for (final debt in debts) ...[
                     DebtTransactionCard(
                       debt: debt,
-                      onSettle: () {
-                        ref
-                            .read(debtControllerProvider.notifier)
-                            .createSettlementRequest(debt.id);
-                        context.go('/profile/inbox');
-                      },
+                      settling: _settlingDebtIds.contains(debt.id),
+                      onSettle: () => _settleOne(debt.id),
                     ),
                     const SizedBox(height: 12),
                   ],

@@ -10,11 +10,13 @@ class DebtTransactionCard extends StatelessWidget {
   const DebtTransactionCard({
     required this.debt,
     required this.onSettle,
+    this.settling = false,
     super.key,
   });
 
   final DebtModel debt;
   final VoidCallback onSettle;
+  final bool settling;
 
   @override
   Widget build(BuildContext context) {
@@ -81,10 +83,16 @@ class DebtTransactionCard extends StatelessWidget {
                 _StatusPill(status: debt.status),
                 const Spacer(),
                 if (debt.status == DebtStatus.active)
-                  TextButton(
-                    onPressed: onSettle,
-                    child: const Text('Mark settled'),
-                  ),
+                  settling
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : TextButton(
+                          onPressed: onSettle,
+                          child: const Text('Mark settled'),
+                        ),
               ],
             ),
           ],

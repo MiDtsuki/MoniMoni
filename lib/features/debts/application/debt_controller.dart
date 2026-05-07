@@ -218,16 +218,14 @@ class DebtController extends StateNotifier<DebtState> {
 
   Future<void> createSettlementRequest(String debtId) async {
     final debt = state.debts.firstWhere((item) => item.id == debtId);
-    try {
-      await _client.from('inbox_items').insert({
-        'recipient_id': debt.friendId,
-        'sender_id': _userId,
-        'type': 'settlement_request',
-        'payload': {
-          'debt_ids': [debtId],
-        },
-      });
-    } catch (_) {}
+    await _client.from('inbox_items').insert({
+      'recipient_id': debt.friendId,
+      'sender_id': _userId,
+      'type': 'settlement_request',
+      'payload': {
+        'debt_ids': [debtId],
+      },
+    });
   }
 
   Future<void> createSettleAllRequest(String friendId) async {
@@ -236,14 +234,12 @@ class DebtController extends StateNotifier<DebtState> {
         .map((d) => d.id)
         .toList();
     if (debtIds.isEmpty) return;
-    try {
-      await _client.from('inbox_items').insert({
-        'recipient_id': friendId,
-        'sender_id': _userId,
-        'type': 'settlement_request',
-        'payload': {'debt_ids': debtIds},
-      });
-    } catch (_) {}
+    await _client.from('inbox_items').insert({
+      'recipient_id': friendId,
+      'sender_id': _userId,
+      'type': 'settlement_request',
+      'payload': {'debt_ids': debtIds},
+    });
   }
 
   Future<void> acceptSettlementRequest(String requestId) async {
