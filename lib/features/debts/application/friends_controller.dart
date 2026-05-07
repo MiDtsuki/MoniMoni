@@ -162,39 +162,35 @@ class FriendsController extends StateNotifier<FriendsState> {
 
   Future<void> acceptFriendRequest(String requestId) async {
     final request = state.requests.firstWhere((item) => item.id == requestId);
-    try {
-      await _client
-          .from('inbox_items')
-          .update({'status': 'accepted'})
-          .eq('id', requestId);
-      await _client.from('friendships').insert({
-        'user_id': _userId,
-        'friend_id': request.user.id,
-      });
-      if (mounted) {
-        state = state.copyWith(
-          friends: [...state.friends, request.user],
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+    await _client
+        .from('inbox_items')
+        .update({'status': 'accepted'})
+        .eq('id', requestId);
+    await _client.from('friendships').insert({
+      'user_id': _userId,
+      'friend_id': request.user.id,
+    });
+    if (mounted) {
+      state = state.copyWith(
+        friends: [...state.friends, request.user],
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 
   Future<void> declineFriendRequest(String requestId) async {
-    try {
-      await _client
-          .from('inbox_items')
-          .update({'status': 'declined'})
-          .eq('id', requestId);
-      if (mounted) {
-        state = state.copyWith(
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+    await _client
+        .from('inbox_items')
+        .update({'status': 'declined'})
+        .eq('id', requestId);
+    if (mounted) {
+      state = state.copyWith(
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 }

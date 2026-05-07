@@ -167,45 +167,53 @@ class DebtController extends StateNotifier<DebtState> {
     final debt = request.debt;
     if (debt == null) return;
 
-    try {
-      await _client
-          .from('debts')
-          .update({'status': 'active'})
-          .eq('id', debt.id);
-      await _applyOverdueCreditPenalties();
-      await _client
-          .from('inbox_items')
-          .update({'status': 'accepted'})
-          .eq('id', requestId);
+    await _client
+        .from('debts')
+        .update({'status': 'active'})
+        .eq('id', debt.id);
+    await _applyOverdueCreditPenalties();
+    await _client
+        .from('inbox_items')
+        .update({'status': 'accepted'})
+        .eq('id', requestId);
 
-      if (mounted) {
-        state = state.copyWith(
-          debts: [
-            for (final d in state.debts)
-              d.id == debt.id ? d.copyWith(status: DebtStatus.active) : d,
-          ],
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+    if (mounted) {
+      state = state.copyWith(
+        debts: [
+          for (final d in state.debts)
+            d.id == debt.id ? d.copyWith(status: DebtStatus.active) : d,
+        ],
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 
   Future<void> declineDebtRequest(String requestId) async {
-    try {
+    final request = state.requests.firstWhere((item) => item.id == requestId);
+    final debt = request.debt;
+
+    await _client
+        .from('inbox_items')
+        .update({'status': 'declined'})
+        .eq('id', requestId);
+    if (debt != null) {
       await _client
-          .from('inbox_items')
-          .update({'status': 'declined'})
-          .eq('id', requestId);
-      if (mounted) {
-        state = state.copyWith(
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+          .from('debts')
+          .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('id', debt.id);
+    }
+    if (mounted) {
+      state = state.copyWith(
+        debts: debt != null
+            ? state.debts.where((d) => d.id != debt.id).toList()
+            : state.debts,
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 
   Future<void> createSettlementRequest(String debtId) async {
@@ -243,49 +251,45 @@ class DebtController extends StateNotifier<DebtState> {
     final targetIds = request.debtIds.toSet();
     final settledAt = DateTime.now().toUtc();
 
-    try {
-      await _client.rpc(
-        'settle_debts_with_credit_scoring',
-        params: {
-          'debt_ids_input': targetIds.toList(),
-          'p_settled_at': settledAt.toIso8601String(),
-        },
-      );
-      await _client
-          .from('inbox_items')
-          .update({'status': 'accepted'})
-          .eq('id', requestId);
+    await _client.rpc(
+      'settle_debts_with_credit_scoring',
+      params: {
+        'debt_ids_input': targetIds.toList(),
+        'p_settled_at': settledAt.toIso8601String(),
+      },
+    );
+    await _client
+        .from('inbox_items')
+        .update({'status': 'accepted'})
+        .eq('id', requestId);
 
-      if (mounted) {
-        state = state.copyWith(
-          debts: [
-            for (final d in state.debts)
-              targetIds.contains(d.id)
-                  ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
-                  : d,
-          ],
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+    if (mounted) {
+      state = state.copyWith(
+        debts: [
+          for (final d in state.debts)
+            targetIds.contains(d.id)
+                ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
+                : d,
+        ],
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 
   Future<void> declineSettlementRequest(String requestId) async {
-    try {
-      await _client
-          .from('inbox_items')
-          .update({'status': 'declined'})
-          .eq('id', requestId);
-      if (mounted) {
-        state = state.copyWith(
-          requests: state.requests
-              .where((item) => item.id != requestId)
-              .toList(),
-        );
-      }
-    } catch (_) {}
+    await _client
+        .from('inbox_items')
+        .update({'status': 'declined'})
+        .eq('id', requestId);
+    if (mounted) {
+      state = state.copyWith(
+        requests: state.requests
+            .where((item) => item.id != requestId)
+            .toList(),
+      );
+    }
   }
 
   Future<void> _applyOverdueCreditPenalties() async {

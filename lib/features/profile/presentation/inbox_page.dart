@@ -57,13 +57,68 @@ class InboxPage extends ConsumerWidget {
   }
 }
 
-class _FriendRequestCard extends ConsumerWidget {
+class _FriendRequestCard extends ConsumerStatefulWidget {
   const _FriendRequestCard({required this.request});
 
   final FriendRequestModel request;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FriendRequestCard> createState() => _FriendRequestCardState();
+}
+
+class _FriendRequestCardState extends ConsumerState<_FriendRequestCard> {
+  bool _loading = false;
+
+  Future<void> _accept() async {
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(friendsControllerProvider.notifier)
+          .acceptFriendRequest(widget.request.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'You are now friends with ${widget.request.user.name}!',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _decline() async {
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(friendsControllerProvider.notifier)
+          .declineFriendRequest(widget.request.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Friend request declined.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MoniCard(
       child: Row(
         children: [
@@ -80,56 +135,118 @@ class _FriendRequestCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${request.user.name} sent a friend request',
+                  '${widget.request.user.name} sent a friend request',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 2),
-                Text(request.user.username),
+                Text(widget.request.user.username),
               ],
             ),
           ),
-          TextButton(
-            onPressed: () {
-              ref
-                  .read(friendsControllerProvider.notifier)
-                  .acceptFriendRequest(request.id);
-            },
-            child: const Text('Accept'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref
-                  .read(friendsControllerProvider.notifier)
-                  .declineFriendRequest(request.id);
-            },
-            child: const Text('Decline'),
-          ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else ...[
+            TextButton(onPressed: _accept, child: const Text('Accept')),
+            TextButton(onPressed: _decline, child: const Text('Decline')),
+          ],
         ],
       ),
     );
   }
 }
 
-class _DebtRequestCard extends ConsumerWidget {
+class _DebtRequestCard extends ConsumerStatefulWidget {
   const _DebtRequestCard({required this.request});
 
   final DebtRequestModel request;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DebtRequestCard> createState() => _DebtRequestCardState();
+}
+
+class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
+  bool _loading = false;
+
+  Future<void> _accept(bool isSettlement) async {
+    setState(() => _loading = true);
+    try {
+      final controller = ref.read(debtControllerProvider.notifier);
+      if (isSettlement) {
+        await controller.acceptSettlementRequest(widget.request.id);
+      } else {
+        await controller.acceptDebtRequest(widget.request.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isSettlement ? 'Settlement accepted!' : 'Debt request accepted!',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _decline(bool isSettlement) async {
+    setState(() => _loading = true);
+    try {
+      final controller = ref.read(debtControllerProvider.notifier);
+      if (isSettlement) {
+        await controller.declineSettlementRequest(widget.request.id);
+      } else {
+        await controller.declineDebtRequest(widget.request.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isSettlement ? 'Settlement declined.' : 'Debt request declined.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final friends = ref.watch(friendsControllerProvider).friends;
     final friend = friends.firstWhere(
-      (item) => item.id == request.friendId,
+      (item) => item.id == widget.request.friendId,
       orElse: () => FriendModel(
-        id: request.friendId,
+        id: widget.request.friendId,
         name: 'Friend',
         username: '@unknown',
       ),
     );
-    final debt = request.debt;
-    final isSettlement = request.type == DebtRequestType.settlement;
+    final debt = widget.request.debt;
+    final isSettlement = widget.request.type == DebtRequestType.settlement;
     final debtState = ref.watch(debtControllerProvider);
-    final settlementDebts = request.debtIds
+    final settlementDebts = widget.request.debtIds
         .map((id) => debtState.debts.where((item) => item.id == id).firstOrNull)
         .whereType<DebtModel>()
         .toList();
@@ -138,8 +255,8 @@ class _DebtRequestCard extends ConsumerWidget {
       (sum, item) => sum + item.amount,
     );
     final isSettleAll =
-        isSettlement && request.debtIds.length > 1 ||
-        request.title.toLowerCase().contains('all');
+        isSettlement && widget.request.debtIds.length > 1 ||
+        widget.request.title.toLowerCase().contains('all');
 
     return MoniCard(
       child: Column(
@@ -164,7 +281,7 @@ class _DebtRequestCard extends ConsumerWidget {
                           ? isSettleAll
                                 ? 'Settle all request'
                                 : 'Settlement request'
-                          : request.title,
+                          : widget.request.title,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 2),
@@ -180,7 +297,7 @@ class _DebtRequestCard extends ConsumerWidget {
                 ? isSettleAll
                       ? 'Settle all active transactions with this friend.'
                       : 'Settle one active debt transaction.'
-                : request.description,
+                : widget.request.description,
           ),
           if (debt != null) ...[
             const SizedBox(height: 12),
@@ -208,41 +325,26 @@ class _DebtRequestCard extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () {
-                    final controller = ref.read(
-                      debtControllerProvider.notifier,
-                    );
-                    if (isSettlement) {
-                      controller.declineSettlementRequest(request.id);
-                    } else {
-                      controller.declineDebtRequest(request.id);
-                    }
-                  },
-                  child: const Text('Decline'),
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _decline(isSettlement),
+                    child: const Text('Decline'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () {
-                    final controller = ref.read(
-                      debtControllerProvider.notifier,
-                    );
-                    if (isSettlement) {
-                      controller.acceptSettlementRequest(request.id);
-                    } else {
-                      controller.acceptDebtRequest(request.id);
-                    }
-                  },
-                  child: const Text('Accept'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _accept(isSettlement),
+                    child: const Text('Accept'),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
