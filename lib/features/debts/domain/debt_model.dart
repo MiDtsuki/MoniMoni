@@ -16,6 +16,7 @@ class DebtModel {
     required this.status,
     required this.createdAt,
     this.deadline,
+    this.settledAt,
     this.note,
   });
 
@@ -30,13 +31,15 @@ class DebtModel {
     if (isOwner) {
       friendId = json['counterpart_id'] as String;
       // owner's 'lend' means owner lent → counterpart owes owner → owedToMe
-      direction =
-          dbDirection == 'lend' ? DebtDirection.owedToMe : DebtDirection.iOwe;
+      direction = dbDirection == 'lend'
+          ? DebtDirection.owedToMe
+          : DebtDirection.iOwe;
     } else {
       friendId = ownerId;
       // counterpart perspective: owner's 'lend' means owner lent to me → I owe
-      direction =
-          dbDirection == 'lend' ? DebtDirection.iOwe : DebtDirection.owedToMe;
+      direction = dbDirection == 'lend'
+          ? DebtDirection.iOwe
+          : DebtDirection.owedToMe;
     }
 
     return DebtModel(
@@ -49,6 +52,9 @@ class DebtModel {
       deadline: json['deadline'] != null
           ? DateTime.parse(json['deadline'] as String)
           : null,
+      settledAt: json['settled_at'] != null
+          ? DateTime.parse(json['settled_at'] as String)
+          : null,
       note: json['description'] as String?,
     );
   }
@@ -60,11 +66,12 @@ class DebtModel {
   final DebtStatus status;
   final DateTime createdAt;
   final DateTime? deadline;
+  final DateTime? settledAt;
   final String? note;
 
   bool get isLent => direction == DebtDirection.owedToMe;
 
-  DebtModel copyWith({DebtStatus? status}) {
+  DebtModel copyWith({DebtStatus? status, DateTime? settledAt}) {
     return DebtModel(
       id: id,
       friendId: friendId,
@@ -73,6 +80,7 @@ class DebtModel {
       status: status ?? this.status,
       createdAt: createdAt,
       deadline: deadline,
+      settledAt: settledAt ?? this.settledAt,
       note: note,
     );
   }

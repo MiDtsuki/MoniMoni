@@ -297,14 +297,23 @@ class _StatsTab extends StatelessWidget {
                 ),
               ),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              height: 4,
-              width: selected ? double.infinity : 0,
-              decoration: BoxDecoration(
-                color: MoniTheme.primaryGreen,
-                borderRadius: BorderRadius.circular(99),
-              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final targetWidth = selected && constraints.hasBoundedWidth
+                    ? constraints.maxWidth
+                    : 0.0;
+
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  height: 4,
+                  width: targetWidth,
+                  decoration: BoxDecoration(
+                    color: MoniTheme.primaryGreen,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                );
+              },
             ),
           ],
         ),

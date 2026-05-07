@@ -15,7 +15,8 @@ import '../features/profile/presentation/profile_page.dart';
 import '../features/stats/presentation/stats_page.dart';
 import '../features/transactions/presentation/transaction_form_page.dart';
 import '../features/transactions/presentation/transaction_list_page.dart';
-import '../data/local/db_test_page.dart';
+import '../data/local/db_test_page_stub.dart'
+    if (dart.library.io) '../data/local/db_test_page.dart';
 
 class _AuthChangeNotifier extends ChangeNotifier {
   _AuthChangeNotifier() {
@@ -31,10 +32,9 @@ final appRouter = GoRouter(
   initialLocation: '/login',
   refreshListenable: _authNotifier,
   redirect: (context, state) {
-    final loggedIn =
-        Supabase.instance.client.auth.currentSession != null;
-    final isAuthRoute = state.matchedLocation == '/login' ||
-        state.matchedLocation == '/signup';
+    final loggedIn = Supabase.instance.client.auth.currentSession != null;
+    final isAuthRoute =
+        state.matchedLocation == '/login' || state.matchedLocation == '/signup';
     if (!loggedIn && !isAuthRoute) return '/login';
     if (loggedIn && isAuthRoute) return '/logs';
     return null;

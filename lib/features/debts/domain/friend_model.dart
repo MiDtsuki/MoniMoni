@@ -8,6 +8,7 @@ class FriendModel {
     required this.id,
     required this.name,
     required this.username,
+    this.creditScore = 100,
   });
 
   factory FriendModel.fromJson(Map<String, dynamic> json) {
@@ -15,12 +16,14 @@ class FriendModel {
       id: json['id'] as String,
       name: json['display_name'] as String? ?? '',
       username: json['username'] as String? ?? '',
+      creditScore: (json['credit_score'] as num?)?.toInt() ?? 100,
     );
   }
 
   final String id;
   final String name;
   final String username;
+  final int creditScore;
 }
 
 @immutable

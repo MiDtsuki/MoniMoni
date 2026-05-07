@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,8 +30,7 @@ class DebtState {
 }
 
 class DebtController extends StateNotifier<DebtState> {
-  DebtController(this._ref)
-      : super(const DebtState(debts: [], requests: [])) {
+  DebtController(this._ref) : super(const DebtState(debts: [], requests: [])) {
     _load();
   }
 
@@ -73,37 +74,43 @@ class DebtController extends StateNotifier<DebtState> {
         if (type == 'debt_request') {
           final debtId = payload['debt_id'] as String?;
           final debt = debtId != null ? debtsById[debtId] : null;
-          requests.add(DebtRequestModel(
-            id: r['id'] as String,
-            type: DebtRequestType.debt,
-            friendId: senderId,
-            createdAt: createdAt,
-            title: debt?.isLent == true ? 'Lend request' : 'Borrow request',
-            description: debt?.isLent == true
-                ? 'Approve money lent to this friend.'
-                : 'Approve money borrowed from this friend.',
-            debt: debt,
-          ));
+          requests.add(
+            DebtRequestModel(
+              id: r['id'] as String,
+              type: DebtRequestType.debt,
+              friendId: senderId,
+              createdAt: createdAt,
+              title: debt?.isLent == true ? 'Lend request' : 'Borrow request',
+              description: debt?.isLent == true
+                  ? 'Approve money lent to this friend.'
+                  : 'Approve money borrowed from this friend.',
+              debt: debt,
+            ),
+          );
         } else if (type == 'settlement_request') {
-          final debtIds =
-              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
-          requests.add(DebtRequestModel(
-            id: r['id'] as String,
-            type: DebtRequestType.settlement,
-            friendId: senderId,
-            createdAt: createdAt,
-            title:
-                debtIds.length > 1 ? 'Settle all request' : 'Settlement request',
-            description: debtIds.length > 1
-                ? 'Approve settlement for all active debts with this friend.'
-                : 'Approve settlement for one debt transaction.',
-            debtIds: debtIds,
-          ));
+          final debtIds = (payload['debt_ids'] as List<dynamic>? ?? [])
+              .cast<String>();
+          requests.add(
+            DebtRequestModel(
+              id: r['id'] as String,
+              type: DebtRequestType.settlement,
+              friendId: senderId,
+              createdAt: createdAt,
+              title: debtIds.length > 1
+                  ? 'Settle all request'
+                  : 'Settlement request',
+              description: debtIds.length > 1
+                  ? 'Approve settlement for all active debts with this friend.'
+                  : 'Approve settlement for one debt transaction.',
+              debtIds: debtIds,
+            ),
+          );
         }
       }
 
       if (mounted) {
         state = DebtState(debts: debts, requests: requests);
+        unawaited(_applyOverdueCreditPenalties());
       }
     } catch (_) {}
   }
@@ -117,8 +124,7 @@ class DebtController extends StateNotifier<DebtState> {
     String? note,
   }) async {
     final userId = _userId;
-    final dbDirection =
-        direction == DebtDirection.owedToMe ? 'lend' : 'borrow';
+    final dbDirection = direction == DebtDirection.owedToMe ? 'lend' : 'borrow';
 
     final debtRow = <String, dynamic>{
       'owner_id': userId,
@@ -134,8 +140,11 @@ class DebtController extends StateNotifier<DebtState> {
     };
 
     try {
-      final inserted =
-          await _client.from('debts').insert(debtRow).select().single();
+      final inserted = await _client
+          .from('debts')
+          .insert(debtRow)
+          .select()
+          .single();
       final debt = DebtModel.fromJson(inserted, userId);
 
       await _client.from('inbox_items').insert({
@@ -163,6 +172,7 @@ class DebtController extends StateNotifier<DebtState> {
           .from('debts')
           .update({'status': 'active'})
           .eq('id', debt.id);
+      await _applyOverdueCreditPenalties();
       await _client
           .from('inbox_items')
           .update({'status': 'accepted'})
@@ -174,8 +184,9 @@ class DebtController extends StateNotifier<DebtState> {
             for (final d in state.debts)
               d.id == debt.id ? d.copyWith(status: DebtStatus.active) : d,
           ],
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
     } catch (_) {}
@@ -189,8 +200,9 @@ class DebtController extends StateNotifier<DebtState> {
           .eq('id', requestId);
       if (mounted) {
         state = state.copyWith(
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
     } catch (_) {}
@@ -229,14 +241,16 @@ class DebtController extends StateNotifier<DebtState> {
   Future<void> acceptSettlementRequest(String requestId) async {
     final request = state.requests.firstWhere((item) => item.id == requestId);
     final targetIds = request.debtIds.toSet();
+    final settledAt = DateTime.now().toUtc();
 
     try {
-      for (final id in targetIds) {
-        await _client
-            .from('debts')
-            .update({'status': 'settled'})
-            .eq('id', id);
-      }
+      await _client.rpc(
+        'settle_debts_with_credit_scoring',
+        params: {
+          'debt_ids_input': targetIds.toList(),
+          'p_settled_at': settledAt.toIso8601String(),
+        },
+      );
       await _client
           .from('inbox_items')
           .update({'status': 'accepted'})
@@ -247,11 +261,12 @@ class DebtController extends StateNotifier<DebtState> {
           debts: [
             for (final d in state.debts)
               targetIds.contains(d.id)
-                  ? d.copyWith(status: DebtStatus.settled)
+                  ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
                   : d,
           ],
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
     } catch (_) {}
@@ -265,10 +280,17 @@ class DebtController extends StateNotifier<DebtState> {
           .eq('id', requestId);
       if (mounted) {
         state = state.copyWith(
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
+    } catch (_) {}
+  }
+
+  Future<void> _applyOverdueCreditPenalties() async {
+    try {
+      await _client.rpc('apply_overdue_credit_penalties');
     } catch (_) {}
   }
 }

@@ -10,17 +10,13 @@ final friendsControllerProvider =
     });
 
 class FriendsState {
-  const FriendsState({
-    required this.friends,
-    required this.requests,
-  });
+  const FriendsState({required this.friends, required this.requests});
 
   final List<FriendModel> friends;
   final List<FriendRequestModel> requests;
 
-  List<FriendRequestModel> get pendingRequests => requests
-      .where((r) => r.status == FriendRequestStatus.pending)
-      .toList();
+  List<FriendRequestModel> get pendingRequests =>
+      requests.where((r) => r.status == FriendRequestStatus.pending).toList();
 
   FriendsState copyWith({
     List<FriendModel>? friends,
@@ -35,7 +31,7 @@ class FriendsState {
 
 class FriendsController extends StateNotifier<FriendsState> {
   FriendsController(this._ref)
-      : super(const FriendsState(friends: [], requests: [])) {
+    : super(const FriendsState(friends: [], requests: [])) {
     _load();
   }
 
@@ -66,7 +62,7 @@ class FriendsController extends StateNotifier<FriendsState> {
       if (friendIds.isNotEmpty) {
         final profileRows = await _client
             .from('profiles')
-            .select('id, display_name, username')
+            .select('id, display_name, username, credit_score')
             .inFilter('id', friendIds);
         friends = (profileRows as List)
             .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
@@ -82,14 +78,15 @@ class FriendsController extends StateNotifier<FriendsState> {
           .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      final senderIds =
-          (requestRows as List).map((r) => r['sender_id'] as String).toList();
+      final senderIds = (requestRows as List)
+          .map((r) => r['sender_id'] as String)
+          .toList();
 
       final Map<String, FriendModel> senderProfiles = {};
       if (senderIds.isNotEmpty) {
         final profileRows = await _client
             .from('profiles')
-            .select('id, display_name, username')
+            .select('id, display_name, username, credit_score')
             .inFilter('id', senderIds);
         for (final r in (profileRows as List)) {
           final m = r as Map<String, dynamic>;
@@ -102,11 +99,13 @@ class FriendsController extends StateNotifier<FriendsState> {
         final senderId = row['sender_id'] as String;
         final sender = senderProfiles[senderId];
         if (sender != null) {
-          requests.add(FriendRequestModel(
-            id: row['id'] as String,
-            user: sender,
-            createdAt: DateTime.parse(row['created_at'] as String),
-          ));
+          requests.add(
+            FriendRequestModel(
+              id: row['id'] as String,
+              user: sender,
+              createdAt: DateTime.parse(row['created_at'] as String),
+            ),
+          );
         }
       }
 
@@ -123,22 +122,23 @@ class FriendsController extends StateNotifier<FriendsState> {
     try {
       final userId = _userId;
       final friendIds = state.friends.map((f) => f.id).toSet();
-      final requestedIds =
-          state.pendingRequests.map((r) => r.user.id).toSet();
+      final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
 
       final rows = await _client
           .from('profiles')
-          .select('id, display_name, username')
+          .select('id, display_name, username, credit_score')
           .ilike('username', '%$query%')
           .neq('id', userId)
           .limit(10);
 
       return (rows as List)
           .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
-          .where((user) =>
-              !friendIds.contains(user.id) &&
-              !requestedIds.contains(user.id) &&
-              !_sentRequestIds.contains(user.id))
+          .where(
+            (user) =>
+                !friendIds.contains(user.id) &&
+                !requestedIds.contains(user.id) &&
+                !_sentRequestIds.contains(user.id),
+          )
           .toList();
     } catch (_) {
       return [];
@@ -174,8 +174,9 @@ class FriendsController extends StateNotifier<FriendsState> {
       if (mounted) {
         state = state.copyWith(
           friends: [...state.friends, request.user],
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
     } catch (_) {}
@@ -189,8 +190,9 @@ class FriendsController extends StateNotifier<FriendsState> {
           .eq('id', requestId);
       if (mounted) {
         state = state.copyWith(
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
     } catch (_) {}

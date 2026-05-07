@@ -9,6 +9,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
+import '../../credit_score/presentation/credit_score_card.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 import '../../debts/domain/friend_model.dart';
@@ -47,6 +48,8 @@ class ProfilePage extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _UserHeader(),
+          const SizedBox(height: 16),
+          CreditScoreCard(score: settings.creditScore),
           const SizedBox(height: 16),
           _FinalSummaryCard(
             value: finalSummary,
@@ -111,10 +114,12 @@ class _UserHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(profileSettingsProvider);
-    final displayName =
-        settings.displayName.isNotEmpty ? settings.displayName : 'Loading…';
-    final username =
-        settings.username.isNotEmpty ? '@${settings.username}' : '';
+    final displayName = settings.displayName.isNotEmpty
+        ? settings.displayName
+        : 'Loading…';
+    final username = settings.username.isNotEmpty
+        ? '@${settings.username}'
+        : '';
 
     return MoniCard(
       child: Row(
