@@ -24,7 +24,9 @@ class DebtDetailPage extends ConsumerStatefulWidget {
 
 class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
   bool _settling = false;
+  bool _settleAllSent = false;
   final Set<String> _settlingDebtIds = {};
+  final Set<String> _sentSettlementDebtIds = {};
 
   Future<void> _settleAll(String friendId) async {
     setState(() => _settling = true);
@@ -33,6 +35,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
           .read(debtControllerProvider.notifier)
           .createSettleAllRequest(friendId);
       if (mounted) {
+        setState(() => _settleAllSent = true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Settlement request sent — check your inbox.'),
@@ -57,6 +60,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
           .read(debtControllerProvider.notifier)
           .createSettlementRequest(debtId);
       if (mounted) {
+        setState(() => _sentSettlementDebtIds.add(debtId));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Settlement request sent — check your inbox.'),
@@ -120,7 +124,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: activeDebts.isEmpty || _settling
+                onPressed: activeDebts.isEmpty || _settling || _settleAllSent
                     ? null
                     : () => _settleAll(widget.friendId),
                 child: _settling
@@ -129,7 +133,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
                         width: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Settle All'),
+                    : Text(_settleAllSent ? 'Request sent' : 'Settle All'),
               ),
             ),
             const SizedBox(height: 24),
@@ -149,7 +153,9 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
                     DebtTransactionCard(
                       debt: debt,
                       settling: _settlingDebtIds.contains(debt.id),
-                      onSettle: () => _settleOne(debt.id),
+                      onSettle: _sentSettlementDebtIds.contains(debt.id) || _settleAllSent
+                          ? null
+                          : () => _settleOne(debt.id),
                     ),
                     const SizedBox(height: 12),
                   ],

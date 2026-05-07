@@ -9,13 +9,13 @@ import '../../domain/debt_model.dart';
 class DebtTransactionCard extends StatelessWidget {
   const DebtTransactionCard({
     required this.debt,
-    required this.onSettle,
+    this.onSettle,
     this.settling = false,
     super.key,
   });
 
   final DebtModel debt;
-  final VoidCallback onSettle;
+  final VoidCallback? onSettle;
   final bool settling;
 
   @override

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -110,7 +108,6 @@ class DebtController extends StateNotifier<DebtState> {
 
       if (mounted) {
         state = DebtState(debts: debts, requests: requests);
-        unawaited(_applyOverdueCreditPenalties());
       }
     } catch (_) {}
   }
@@ -171,7 +168,6 @@ class DebtController extends StateNotifier<DebtState> {
         .from('debts')
         .update({'status': 'active'})
         .eq('id', debt.id);
-    await _applyOverdueCreditPenalties();
     await _client
         .from('inbox_items')
         .update({'status': 'accepted'})
@@ -247,13 +243,10 @@ class DebtController extends StateNotifier<DebtState> {
     final targetIds = request.debtIds.toSet();
     final settledAt = DateTime.now().toUtc();
 
-    await _client.rpc(
-      'settle_debts_with_credit_scoring',
-      params: {
-        'debt_ids_input': targetIds.toList(),
-        'p_settled_at': settledAt.toIso8601String(),
-      },
-    );
+    await _client
+        .from('debts')
+        .update({'status': 'settled', 'updated_at': settledAt.toIso8601String()})
+        .inFilter('id', targetIds.toList());
     await _client
         .from('inbox_items')
         .update({'status': 'accepted'})
@@ -288,11 +281,6 @@ class DebtController extends StateNotifier<DebtState> {
     }
   }
 
-  Future<void> _applyOverdueCreditPenalties() async {
-    try {
-      await _client.rpc('apply_overdue_credit_penalties');
-    } catch (_) {}
-  }
 }
 
 final totalLentProvider = Provider<double>((ref) {
