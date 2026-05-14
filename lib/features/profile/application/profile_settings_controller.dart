@@ -170,6 +170,8 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     return '';
   }
 
+  Future<void> refresh() => _load();
+
   Future<void> setCurrency(CurrencyOption currency) async {
     state = state.copyWith(currency: currency);
     if (_userId == null) return;

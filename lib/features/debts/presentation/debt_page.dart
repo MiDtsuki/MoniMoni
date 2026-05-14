@@ -9,12 +9,16 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
+import '../../../features/profile/application/profile_settings_controller.dart';
 import '../application/debt_controller.dart';
 import '../application/friends_controller.dart';
 import '../application/guest_debt_note_controller.dart';
 import '../domain/debt_model.dart';
 import '../domain/friend_model.dart';
 import '../domain/guest_debt_note_model.dart';
+
+const _kMinCreditScore = 70;
+const _kCreditScoreWarning = 80;
 
 class DebtPage extends ConsumerWidget {
   const DebtPage({super.key});
@@ -31,6 +35,8 @@ class DebtPage extends ConsumerWidget {
     final totalLent = ref.watch(totalLentProvider);
     final totalBorrowed = ref.watch(totalBorrowedProvider);
     final netDebt = ref.watch(netDebtProvider);
+    final creditScore = ref.watch(profileSettingsProvider).creditScore;
+    final blocked = creditScore < _kMinCreditScore;
 
     return AppPage(
       title: 'Debts',
@@ -44,6 +50,10 @@ class DebtPage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (creditScore < _kCreditScoreWarning) ...[
+            _CreditScoreBanner(score: creditScore, blocked: blocked),
+            const SizedBox(height: 16),
+          ],
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth > 760
@@ -88,7 +98,7 @@ class DebtPage extends ConsumerWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: friendsState.friends.isEmpty
+                  onPressed: (friendsState.friends.isEmpty || blocked)
                       ? null
                       : () => context.go('/debts/new'),
                   icon: const Icon(LucideIcons.plus),
@@ -506,6 +516,51 @@ class _FriendCard extends StatelessWidget {
     );
   }
 }
+
+// ─── Credit score banner ──────────────────────────────────────────────────────
+
+class _CreditScoreBanner extends StatelessWidget {
+  const _CreditScoreBanner({required this.score, required this.blocked});
+  final int score;
+  final bool blocked;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBlocked = blocked;
+    final bg = isBlocked ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB);
+    final border =
+        isBlocked ? const Color(0xFFFCA5A5) : const Color(0xFFFCD34D);
+    final icon = isBlocked ? LucideIcons.shieldAlert : LucideIcons.triangleAlert;
+    final iconColor =
+        isBlocked ? const Color(0xFFEF4444) : const Color(0xFFD97706);
+    final textColor =
+        isBlocked ? const Color(0xFF991B1B) : const Color(0xFF92400E);
+    final message = isBlocked
+        ? 'Score $score/100 — too low to add debts. Settle overdue debts to recover.'
+        : 'Score $score/100 — settle debts on time to avoid being blocked.';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: TextStyle(fontSize: 13, color: textColor)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _AddFriendDialog extends ConsumerStatefulWidget {
   const _AddFriendDialog();

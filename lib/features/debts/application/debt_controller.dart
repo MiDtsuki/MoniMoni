@@ -2,8 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/providers/supabase_providers.dart';
 import '../../../core/providers/session_providers.dart';
+import '../../../core/providers/supabase_providers.dart';
+import '../../../features/profile/application/profile_settings_controller.dart';
 import '../domain/debt_model.dart';
 import '../domain/settlement_payment_info.dart';
 
@@ -90,6 +91,11 @@ class DebtController extends StateNotifier<DebtState> {
 
   Future<void> _load() async {
     try {
+      await _client.rpc('apply_overdue_credit_penalties');
+      _ref.read(profileSettingsProvider.notifier).refresh();
+    } catch (_) {}
+
+    try {
       final userId = _userId;
       if (userId == null) return;
 
@@ -175,7 +181,7 @@ class DebtController extends StateNotifier<DebtState> {
     required double amount,
     required DebtDirection direction,
     required DateTime createdAt,
-    DateTime? deadline,
+    required DateTime deadline,
     String? note,
   }) async {
     final userId = _userId;
@@ -189,9 +195,8 @@ class DebtController extends StateNotifier<DebtState> {
       'amount': amount,
       'description': note?.trim().isEmpty ?? true ? null : note?.trim(),
       'status': 'pending',
-      if (deadline != null)
-        'deadline':
-            '${deadline.year}-${deadline.month.toString().padLeft(2, '0')}-${deadline.day.toString().padLeft(2, '0')}',
+      'deadline':
+          '${deadline.year}-${deadline.month.toString().padLeft(2, '0')}-${deadline.day.toString().padLeft(2, '0')}',
       'created_at': createdAt.toIso8601String(),
     };
 
