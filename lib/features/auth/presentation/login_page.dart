@@ -73,13 +73,7 @@ class _LoginPageState extends State<LoginPage> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Password recovery is not connected yet.'),
-                    ),
-                  );
-                },
+                onPressed: _forgotPassword,
                 child: const Text('Forgot password?'),
               ),
             ),
@@ -105,6 +99,17 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _forgotPassword() async {
+    final result = await showDialog<_ForgotResult>(
+      context: context,
+      builder: (ctx) => _ForgotPasswordDialog(prefillEmail: _emailController.text.trim()),
+    );
+    if (!mounted) return;
+    if (result is _EmailOtpSent) {
+      context.push('/verify-otp', extra: result.email);
+    }
   }
 
   Future<void> _submit() async {
@@ -283,6 +288,141 @@ class _AuthSwitchRow extends StatelessWidget {
     );
   }
 }
+
+// ─── Forgot password result types ───────────────────────────────────────────
+
+sealed class _ForgotResult {}
+
+class _EmailOtpSent extends _ForgotResult {
+  _EmailOtpSent(this.email);
+  final String email;
+}
+
+// ─── Forgot password dialog ───────────────────────────────────────────────────
+
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog({required this.prefillEmail});
+  final String prefillEmail;
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  late final TextEditingController _emailCtrl;
+  var _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController(text: widget.prefillEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: MoniTheme.softGreen,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(LucideIcons.keyRound, color: MoniTheme.primaryGreen, size: 20),
+          ),
+          const SizedBox(width: 12),
+          const Text('Reset password'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            "We'll send a 6-digit code to your email.",
+            style: TextStyle(color: MoniTheme.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Email address',
+              prefixIcon: Icon(LucideIcons.mail),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _loading ? null : _submit,
+                  icon: _loading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(LucideIcons.hash, size: 16),
+                  label: const Text('Send code'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your email address')),
+      );
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await Supabase.instance.client.auth.signInWithOtp(email: email);
+      if (mounted) Navigator.of(context).pop(_EmailOtpSent(email));
+    } on AuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 String? _validateEmail(String? value) {
   final trimmed = value?.trim() ?? '';

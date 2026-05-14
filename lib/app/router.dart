@@ -5,6 +5,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../features/auth/presentation/login_page.dart';
+import '../features/auth/presentation/otp_verify_page.dart';
+import '../features/auth/presentation/reset_password_page.dart';
 import '../features/auth/presentation/signup_page.dart';
 import '../features/debts/presentation/debt_detail_page.dart';
 import '../features/debts/presentation/debt_form_page.dart';
@@ -19,8 +21,11 @@ import '../data/local/db_test_page_stub.dart'
     if (dart.library.io) '../data/local/db_test_page.dart';
 
 class _AuthChangeNotifier extends ChangeNotifier {
+  AuthChangeEvent? lastEvent;
+
   _AuthChangeNotifier() {
-    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      lastEvent = data.event;
       notifyListeners();
     });
   }
@@ -35,7 +40,13 @@ final appRouter = GoRouter(
     final loggedIn = Supabase.instance.client.auth.currentSession != null;
     final isAuthRoute =
         state.matchedLocation == '/login' || state.matchedLocation == '/signup';
-    if (!loggedIn && !isAuthRoute) return '/login';
+    final isResetRoute = state.matchedLocation == '/reset-password';
+    final isOtpRoute = state.matchedLocation == '/verify-otp';
+
+    if (_authNotifier.lastEvent == AuthChangeEvent.passwordRecovery) {
+      return '/reset-password';
+    }
+    if (!loggedIn && !isAuthRoute && !isResetRoute && !isOtpRoute) return '/login';
     if (loggedIn && isAuthRoute) return '/logs';
     return null;
   },
@@ -43,6 +54,11 @@ final appRouter = GoRouter(
     GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
     GoRoute(path: '/db-test', builder: (context, state) => const DbTestPage()),
     GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
+    GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordPage()),
+    GoRoute(
+      path: '/verify-otp',
+      builder: (context, state) => OtpVerifyPage(email: state.extra as String),
+    ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
         return MoniShell(navigationShell: navigationShell);

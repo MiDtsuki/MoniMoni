@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:moni/app/app.dart';
@@ -21,6 +22,46 @@ void main() {
 
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Log in'), findsOneWidget);
+  });
+
+  testWidgets('Forgot password opens reset dialog', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: MoniApp()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reset password'), findsOneWidget);
+    expect(find.text('Send link'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('Forgot password dialog pre-fills email field', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: MoniApp()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Email').first, 'user@example.com');
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+
+    final dialogEmailField = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.widgetWithText(TextFormField, 'user@example.com'),
+    );
+    expect(dialogEmailField, findsOneWidget);
+  });
+
+  testWidgets('Forgot password dialog dismisses on cancel', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: MoniApp()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reset password'), findsNothing);
   });
 }
 
