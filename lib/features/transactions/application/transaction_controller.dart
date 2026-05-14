@@ -2,15 +2,36 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/providers/guest_session_provider.dart';
 import '../../../core/providers/supabase_providers.dart';
 import '../domain/transaction_model.dart';
+import 'guest_transaction_controller.dart';
+
+abstract class BaseTransactionController
+    extends StateNotifier<List<TransactionModel>> {
+  BaseTransactionController(super.state);
+
+  Future<void> addTransaction({
+    required String category,
+    required String account,
+    required double amount,
+    required TransactionType type,
+    DateTime? date,
+    String? note,
+  });
+
+  Future<void> updateTransaction(TransactionModel transaction);
+
+  Future<void> deleteTransaction(String id);
+}
 
 final transactionControllerProvider =
-    StateNotifierProvider<TransactionController, List<TransactionModel>>((ref) {
+    StateNotifierProvider<BaseTransactionController, List<TransactionModel>>((ref) {
+      if (ref.watch(isGuestProvider)) return GuestTransactionController(ref);
       return TransactionController(ref);
     });
 
-class TransactionController extends StateNotifier<List<TransactionModel>> {
+class TransactionController extends BaseTransactionController {
   TransactionController(this._ref) : super(const []) {
     _load();
   }
@@ -36,6 +57,7 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
     } catch (_) {}
   }
 
+  @override
   Future<void> addTransaction({
     required String category,
     required String account,
@@ -62,6 +84,7 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
     }
   }
 
+  @override
   Future<void> updateTransaction(TransactionModel transaction) async {
     final prev = state.firstWhere((item) => item.id == transaction.id);
     state = [
@@ -84,6 +107,7 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
     }
   }
 
+  @override
   Future<void> deleteTransaction(String id) async {
     final prev = state.firstWhere((item) => item.id == id);
     state = state.where((item) => item.id != id).toList();

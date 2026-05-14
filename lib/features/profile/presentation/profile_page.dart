@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/guest_session_provider.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -30,27 +31,32 @@ class ProfilePage extends ConsumerWidget {
     final debtNet = ref.watch(netDebtProvider);
     final notificationCount = ref.watch(pendingNotificationCountProvider);
     final settings = ref.watch(profileSettingsProvider);
+    final isGuest = ref.watch(isGuestProvider);
     final finalSummary = monthlyIncome - monthlyExpense + debtNet;
 
     return AppPage(
       title: 'Profile',
       subtitle: 'Financial dashboard for this month.',
-      action: IconButton.filledTonal(
-        onPressed: () => context.go('/profile/inbox'),
-        icon: notificationCount == 0
-            ? const Icon(LucideIcons.bell)
-            : Badge.count(
-                count: notificationCount,
-                child: const Icon(LucideIcons.bell),
-              ),
-      ),
+      action: isGuest
+          ? null
+          : IconButton.filledTonal(
+              onPressed: () => context.go('/profile/inbox'),
+              icon: notificationCount == 0
+                  ? const Icon(LucideIcons.bell)
+                  : Badge.count(
+                      count: notificationCount,
+                      child: const Icon(LucideIcons.bell),
+                    ),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isGuest) const _GuestBanner(),
+          if (isGuest) const SizedBox(height: 16),
           const _UserHeader(),
           const SizedBox(height: 16),
-          CreditScoreCard(score: settings.creditScore),
-          const SizedBox(height: 16),
+          if (!isGuest) CreditScoreCard(score: settings.creditScore),
+          if (!isGuest) const SizedBox(height: 16),
           _FinalSummaryCard(
             value: finalSummary,
             symbol: settings.currency.symbol,
@@ -96,9 +102,11 @@ class ProfilePage extends ConsumerWidget {
           const SizedBox(height: 18),
           _SettingsSection(currency: settings.currency),
           const SizedBox(height: 18),
-          const _AddFriendSection(),
-          const SizedBox(height: 18),
-          _SignOutButton(),
+          if (!isGuest) ...[
+            const _AddFriendSection(),
+            const SizedBox(height: 18),
+          ],
+          if (isGuest) const _GuestSignUpSection() else _SignOutButton(),
         ],
       ),
     );
@@ -169,6 +177,98 @@ class _SignOutButton extends StatelessWidget {
         icon: const Icon(LucideIcons.logOut),
         label: const Text('Sign out'),
       ),
+    );
+  }
+}
+
+class _GuestBanner extends StatelessWidget {
+  const _GuestBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: MoniTheme.softGreen,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: MoniTheme.line),
+      ),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.cloudOff, color: MoniTheme.primaryGreen, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Guest mode — data is saved locally on this device only.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: MoniTheme.primaryGreen,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GuestSignUpSection extends ConsumerWidget {
+  const _GuestSignUpSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        MoniCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(LucideIcons.cloudUpload, color: MoniTheme.primaryGreen),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Sync to the cloud',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Create a free account to back up your data, track debts with friends, and access Moni from any device.',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  exitGuestMode(ref);
+                  context.go('/login');
+                },
+                icon: const Icon(LucideIcons.logIn),
+                label: const Text('Sign in'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  exitGuestMode(ref);
+                  context.go('/signup');
+                },
+                icon: const Icon(LucideIcons.userRoundPlus),
+                label: const Text('Create account'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

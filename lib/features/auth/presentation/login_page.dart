@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/guest_session_provider.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  ConsumerState<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -94,6 +96,15 @@ class _LoginPageState extends State<LoginPage> {
               text: 'New to Moni?',
               action: 'Create an account',
               onPressed: () => context.go('/signup'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                enterGuestMode(ref);
+                context.go('/logs');
+              },
+              icon: const Icon(LucideIcons.userRoundX),
+              label: const Text('Continue as guest'),
             ),
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/guest_session_provider.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -18,6 +19,7 @@ class DebtPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(isGuestProvider)) return const _GuestDebtWall();
     final debtState = ref.watch(debtControllerProvider);
     final friendsState = ref.watch(friendsControllerProvider);
     final totalLent = ref.watch(totalLentProvider);
@@ -286,3 +288,70 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
     );
   }
 }
+
+class _GuestDebtWall extends ConsumerWidget {
+  const _GuestDebtWall();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return AppPage(
+      title: 'Debts',
+      subtitle: 'Track money shared with friends.',
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: MoniTheme.softGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  LucideIcons.lockKeyhole,
+                  size: 48,
+                  color: MoniTheme.primaryGreen,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Debts require an account',
+                style: Theme.of(context).textTheme.headlineMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Create a free account to track shared money with friends, send debt requests, and settle up.',
+                style: const TextStyle(color: MoniTheme.muted),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    exitGuestMode(ref);
+                    context.go('/signup');
+                  },
+                  icon: const Icon(LucideIcons.userRoundPlus),
+                  label: const Text('Create free account'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  exitGuestMode(ref);
+                  context.go('/login');
+                },
+                child: const Text('Already have an account? Sign in'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

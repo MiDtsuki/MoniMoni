@@ -38,6 +38,7 @@ class DebtController extends StateNotifier<DebtState> {
   String get _userId => _ref.read(currentUserIdProvider);
 
   Future<void> _load() async {
+    if (_ref.read(currentUserProvider) == null) return;
     try {
       final userId = _userId;
 

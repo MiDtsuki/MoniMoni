@@ -1,10 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/providers/guest_session_provider.dart';
 import '../../../core/providers/supabase_providers.dart';
+import 'guest_profile_settings_controller.dart';
+
+abstract class BaseProfileSettingsController
+    extends StateNotifier<ProfileSettings> {
+  BaseProfileSettingsController(super.state);
+  Future<void> setCurrency(CurrencyOption currency);
+}
 
 final profileSettingsProvider =
-    StateNotifierProvider<ProfileSettingsController, ProfileSettings>((ref) {
+    StateNotifierProvider<BaseProfileSettingsController, ProfileSettings>((ref) {
+      if (ref.watch(isGuestProvider)) return GuestProfileSettingsController(ref);
       return ProfileSettingsController(ref);
     });
 
@@ -48,7 +57,7 @@ class CurrencyOption {
   final String name;
 }
 
-class ProfileSettingsController extends StateNotifier<ProfileSettings> {
+class ProfileSettingsController extends BaseProfileSettingsController {
   ProfileSettingsController(this._ref)
     : super(const ProfileSettings(currency: defaultCurrency)) {
     _load();
@@ -145,6 +154,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     return '';
   }
 
+  @override
   Future<void> setCurrency(CurrencyOption currency) async {
     state = state.copyWith(currency: currency);
     try {
