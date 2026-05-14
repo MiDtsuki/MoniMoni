@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/supabase_providers.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -35,6 +36,14 @@ class ProfilePage extends ConsumerWidget {
     return AppPage(
       title: 'Profile',
       subtitle: 'Financial dashboard for this month.',
+      onRefresh: () async {
+        await Future.wait([
+          ref.read(transactionControllerProvider.notifier).refresh(),
+          ref.read(debtControllerProvider.notifier).refresh(),
+          ref.read(friendsControllerProvider.notifier).refresh(),
+          ref.read(profileSettingsProvider.notifier).refresh(),
+        ]);
+      },
       action: IconButton.filledTonal(
         onPressed: () => context.go('/profile/inbox'),
         icon: notificationCount == 0
@@ -156,15 +165,28 @@ class _UserHeader extends ConsumerWidget {
   }
 }
 
-class _SignOutButton extends StatelessWidget {
+class _SignOutButton extends ConsumerWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: () async {
-          await Supabase.instance.client.auth.signOut();
-          if (context.mounted) context.go('/login');
+          try {
+            await Supabase.instance.client.auth.signOut(
+              scope: SignOutScope.local,
+            );
+          } finally {
+            ref
+              ..invalidate(currentUserProvider)
+              ..invalidate(transactionControllerProvider)
+              ..invalidate(debtControllerProvider)
+              ..invalidate(friendsControllerProvider)
+              ..invalidate(profileSettingsProvider);
+          }
+          if (context.mounted) {
+            context.go('/login');
+          }
         },
         icon: const Icon(LucideIcons.logOut),
         label: const Text('Sign out'),

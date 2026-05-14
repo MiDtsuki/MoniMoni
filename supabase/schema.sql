@@ -400,3 +400,30 @@ grant execute on function apply_overdue_credit_penalties(timestamptz)
   to authenticated;
 grant execute on function settle_debts_with_credit_scoring(uuid[], timestamptz)
   to authenticated;
+
+-- Realtime updates for inbox/debt sync.
+-- These let open clients refresh when requests arrive or debt rows change.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'inbox_items'
+    ) then
+      alter publication supabase_realtime add table public.inbox_items;
+    end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'debts'
+    ) then
+      alter publication supabase_realtime add table public.debts;
+    end if;
+  end if;
+end $$;

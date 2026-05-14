@@ -49,64 +49,70 @@ class _TransactionListPageState extends ConsumerState<TransactionListPage> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: CustomScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-                    child: Column(
-                      children: [
-                        _MonthBar(
-                          month: _selectedMonth,
-                          onPrevious: () => _moveMonth(-1),
-                          onNext: () => _moveMonth(1),
-                          onTapMonth: _pickMonth,
-                        ),
-                        const SizedBox(height: 14),
-                        const _DailyTab(),
-                        const SizedBox(height: 14),
-                        _SummaryRow(
-                          income: income,
-                          expenses: expenses,
-                          total: income - expenses,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (grouped.isEmpty)
-                  SliverPadding(
-                    padding: const EdgeInsets.all(18),
-                    sliver: SliverToBoxAdapter(
-                      child: EmptyState(
-                        title: 'No transactions this month',
-                        message:
-                            'Add income or expenses to build a daily log for ${DateFormat('MMMM yyyy').format(_selectedMonth)}.',
-                        icon: LucideIcons.receiptText,
-                        action: ElevatedButton.icon(
-                          onPressed: () => context.go('/logs/new'),
-                          icon: const Icon(LucideIcons.plus),
-                          label: const Text('Add transaction'),
-                        ),
+            child: RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(transactionControllerProvider.notifier).refresh(),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+                      child: Column(
+                        children: [
+                          _MonthBar(
+                            month: _selectedMonth,
+                            onPrevious: () => _moveMonth(-1),
+                            onNext: () => _moveMonth(1),
+                            onTapMonth: _pickMonth,
+                          ),
+                          const SizedBox(height: 14),
+                          const _DailyTab(),
+                          const SizedBox(height: 14),
+                          _SummaryRow(
+                            income: income,
+                            expenses: expenses,
+                            total: income - expenses,
+                          ),
+                        ],
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
-                    sliver: SliverList.builder(
-                      itemCount: grouped.length,
-                      itemBuilder: (context, index) {
-                        final entry = grouped.entries.elementAt(index);
-                        return _DaySection(
-                          date: entry.key,
-                          transactions: entry.value,
-                        );
-                      },
-                    ),
                   ),
-              ],
+                  if (grouped.isEmpty)
+                    SliverPadding(
+                      padding: const EdgeInsets.all(18),
+                      sliver: SliverToBoxAdapter(
+                        child: EmptyState(
+                          title: 'No transactions this month',
+                          message:
+                              'Add income or expenses to build a daily log for ${DateFormat('MMMM yyyy').format(_selectedMonth)}.',
+                          icon: LucideIcons.receiptText,
+                          action: ElevatedButton.icon(
+                            onPressed: () => context.go('/logs/new'),
+                            icon: const Icon(LucideIcons.plus),
+                            label: const Text('Add transaction'),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+                      sliver: SliverList.builder(
+                        itemCount: grouped.length,
+                        itemBuilder: (context, index) {
+                          final entry = grouped.entries.elementAt(index);
+                          return _DaySection(
+                            date: entry.key,
+                            transactions: entry.value,
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

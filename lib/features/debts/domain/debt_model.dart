@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'settlement_payment_info.dart';
+
 enum DebtDirection { owedToMe, iOwe }
 
 enum DebtStatus { pending, active, settled }
@@ -108,6 +110,7 @@ class DebtRequestModel {
     required this.description,
     this.debt,
     this.debtIds = const [],
+    this.paymentInfo = const SettlementPaymentInfo.cash(),
   });
 
   final String id;
@@ -118,4 +121,5 @@ class DebtRequestModel {
   final String description;
   final DebtModel? debt;
   final List<String> debtIds;
+  final SettlementPaymentInfo paymentInfo;
 }

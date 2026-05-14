@@ -6,7 +6,8 @@ import '../domain/friend_model.dart';
 
 final friendsControllerProvider =
     StateNotifierProvider<FriendsController, FriendsState>((ref) {
-      return FriendsController(ref);
+      final userId = ref.watch(currentUserIdProvider);
+      return FriendsController(ref, userId);
     });
 
 class FriendsState {
@@ -30,16 +31,18 @@ class FriendsState {
 }
 
 class FriendsController extends StateNotifier<FriendsState> {
-  FriendsController(this._ref)
+  FriendsController(this._ref, this._userId)
     : super(const FriendsState(friends: [], requests: [])) {
     _load();
   }
 
   final Ref _ref;
+  final String _userId;
   final Set<String> _sentRequestIds = {};
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
-  String get _userId => _ref.read(currentUserIdProvider);
+
+  Future<void> refresh() => _load();
 
   Future<void> _load() async {
     try {
@@ -173,9 +176,7 @@ class FriendsController extends StateNotifier<FriendsState> {
     if (mounted) {
       state = state.copyWith(
         friends: [...state.friends, request.user],
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }
@@ -187,9 +188,7 @@ class FriendsController extends StateNotifier<FriendsState> {
         .eq('id', requestId);
     if (mounted) {
       state = state.copyWith(
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }

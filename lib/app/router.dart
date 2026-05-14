@@ -26,6 +26,10 @@ class _AuthChangeNotifier extends ChangeNotifier {
   _AuthChangeNotifier() {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       lastEvent = data.event;
+      if (data.event == AuthChangeEvent.signedOut ||
+          data.event == AuthChangeEvent.signedIn) {
+        lastEvent = null;
+      }
       notifyListeners();
     });
   }
@@ -46,15 +50,22 @@ final appRouter = GoRouter(
     if (_authNotifier.lastEvent == AuthChangeEvent.passwordRecovery) {
       return '/reset-password';
     }
-    if (!loggedIn && !isAuthRoute && !isResetRoute && !isOtpRoute) return '/login';
-    if (loggedIn && isAuthRoute) return '/logs';
+    if (!loggedIn && !isAuthRoute && !isResetRoute && !isOtpRoute) {
+      return '/login';
+    }
+    if (loggedIn && isAuthRoute) {
+      return '/logs';
+    }
     return null;
   },
   routes: [
     GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
     GoRoute(path: '/db-test', builder: (context, state) => const DbTestPage()),
     GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),
-    GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordPage()),
+    GoRoute(
+      path: '/reset-password',
+      builder: (context, state) => const ResetPasswordPage(),
+    ),
     GoRoute(
       path: '/verify-otp',
       builder: (context, state) => OtpVerifyPage(email: state.extra as String),

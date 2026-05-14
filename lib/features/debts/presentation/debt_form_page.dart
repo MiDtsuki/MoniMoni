@@ -27,6 +27,7 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
   DateTime _createdAt = DateTime.now();
   DateTime? _deadline;
   String? _friendId;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -159,8 +160,16 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
                       ),
                       const SizedBox(height: 22),
                       ElevatedButton(
-                        onPressed: _save,
-                        child: const Text('Send request'),
+                        onPressed: _saving ? null : _save,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Send request'),
                       ),
                     ],
                   ),
@@ -211,21 +220,36 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
     setState(() => _deadline = date);
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    ref
-        .read(debtControllerProvider.notifier)
-        .createDebtRequest(
-          friendId: _friendId!,
-          amount: double.parse(_amountController.text),
-          direction: _direction,
-          createdAt: _createdAt,
-          deadline: _deadline,
-          note: _noteController.text,
-        );
-    context.go('/profile/inbox');
+    setState(() => _saving = true);
+    try {
+      await ref
+          .read(debtControllerProvider.notifier)
+          .createDebtRequest(
+            friendId: _friendId!,
+            amount: double.parse(_amountController.text),
+            direction: _direction,
+            createdAt: _createdAt,
+            deadline: _deadline,
+            note: _noteController.text,
+          );
+      if (mounted) {
+        context.go('/profile/inbox');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not send request: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
   }
 }
 

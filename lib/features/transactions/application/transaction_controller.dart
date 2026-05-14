@@ -7,19 +7,22 @@ import '../domain/transaction_model.dart';
 
 final transactionControllerProvider =
     StateNotifierProvider<TransactionController, List<TransactionModel>>((ref) {
-      return TransactionController(ref);
+      final userId = ref.watch(currentUserIdProvider);
+      return TransactionController(ref, userId);
     });
 
 class TransactionController extends StateNotifier<List<TransactionModel>> {
-  TransactionController(this._ref) : super(const []) {
+  TransactionController(this._ref, this._userId) : super(const []) {
     _load();
   }
 
   final Ref _ref;
+  final String _userId;
   static const _uuid = Uuid();
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
-  String get _userId => _ref.read(currentUserIdProvider);
+
+  Future<void> refresh() => _load();
 
   Future<void> _load() async {
     try {
@@ -31,7 +34,9 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
           .order('date', ascending: false)
           .order('created_at', ascending: false);
       if (mounted) {
-        state = (rows as List).map((r) => TransactionModel.fromJson(r as Map<String, dynamic>)).toList();
+        state = (rows as List)
+            .map((r) => TransactionModel.fromJson(r as Map<String, dynamic>))
+            .toList();
       }
     } catch (_) {}
   }

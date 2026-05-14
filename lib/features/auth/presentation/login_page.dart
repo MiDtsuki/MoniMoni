@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/supabase_providers.dart';
+import '../../debts/application/debt_controller.dart';
+import '../../debts/application/friends_controller.dart';
+import '../../profile/application/profile_settings_controller.dart';
+import '../../transactions/application/transaction_controller.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  ConsumerState<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -104,7 +110,8 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _forgotPassword() async {
     final result = await showDialog<_ForgotResult>(
       context: context,
-      builder: (ctx) => _ForgotPasswordDialog(prefillEmail: _emailController.text.trim()),
+      builder: (ctx) =>
+          _ForgotPasswordDialog(prefillEmail: _emailController.text.trim()),
     );
     if (!mounted) return;
     if (result is _EmailOtpSent) {
@@ -122,20 +129,30 @@ class _LoginPageState extends State<LoginPage> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      _invalidateAccountProviders();
       if (mounted) context.go('/logs');
     } on AuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unexpected error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unexpected error: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _invalidateAccountProviders() {
+    ref
+      ..invalidate(currentUserProvider)
+      ..invalidate(transactionControllerProvider)
+      ..invalidate(debtControllerProvider)
+      ..invalidate(friendsControllerProvider)
+      ..invalidate(profileSettingsProvider);
   }
 }
 
@@ -338,7 +355,11 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
               color: MoniTheme.softGreen,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(LucideIcons.keyRound, color: MoniTheme.primaryGreen, size: 20),
+            child: const Icon(
+              LucideIcons.keyRound,
+              color: MoniTheme.primaryGreen,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 12),
           const Text('Reset password'),
@@ -370,7 +391,9 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
                   onPressed: () => Navigator.of(context).pop(),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: const Text('Cancel'),
                 ),
@@ -380,12 +403,18 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
                 child: ElevatedButton.icon(
                   onPressed: _loading ? null : _submit,
                   icon: _loading
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(LucideIcons.hash, size: 16),
                   label: const Text('Send code'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -399,9 +428,9 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
   Future<void> _submit() async {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your email address')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter your email address')));
       return;
     }
     setState(() => _loading = true);
@@ -410,11 +439,15 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
       if (mounted) Navigator.of(context).pop(_EmailOtpSent(email));
     } on AuthException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);

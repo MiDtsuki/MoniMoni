@@ -32,7 +32,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Reset password'), findsOneWidget);
-    expect(find.text('Send link'), findsOneWidget);
+    expect(find.text('Send code'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
   });
 
@@ -40,7 +40,10 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MoniApp()));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Email').first, 'user@example.com');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email').first,
+      'user@example.com',
+    );
     await tester.tap(find.text('Forgot password?'));
     await tester.pumpAndSettle();
 

@@ -27,6 +27,12 @@ class DebtPage extends ConsumerWidget {
     return AppPage(
       title: 'Debts',
       subtitle: 'Track money shared with friends.',
+      onRefresh: () async {
+        await Future.wait([
+          ref.read(debtControllerProvider.notifier).refresh(),
+          ref.read(friendsControllerProvider.notifier).refresh(),
+        ]);
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -1,11 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/providers/supabase_providers.dart';
 import '../domain/debt_model.dart';
+import '../domain/settlement_payment_info.dart';
 
 final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
-  (ref) => DebtController(ref),
+  (ref) {
+    final userId = ref.watch(currentUserIdProvider);
+    return DebtController(ref, userId);
+  },
 );
 
 class DebtState {
@@ -28,14 +33,44 @@ class DebtState {
 }
 
 class DebtController extends StateNotifier<DebtState> {
-  DebtController(this._ref) : super(const DebtState(debts: [], requests: [])) {
+  DebtController(this._ref, this._userId)
+    : super(const DebtState(debts: [], requests: [])) {
     _load();
+    _subscribeToRemoteChanges();
   }
 
   final Ref _ref;
+  final String _userId;
+  final List<RealtimeChannel> _channels = [];
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
-  String get _userId => _ref.read(currentUserIdProvider);
+
+  Future<void> refresh() => _load();
+
+  void _subscribeToRemoteChanges() {
+    _channels
+      ..add(_watchTable('inbox-recipient', 'inbox_items', 'recipient_id'))
+      ..add(_watchTable('inbox-sender', 'inbox_items', 'sender_id'))
+      ..add(_watchTable('debts-owner', 'debts', 'owner_id'))
+      ..add(_watchTable('debts-counterpart', 'debts', 'counterpart_id'));
+  }
+
+  RealtimeChannel _watchTable(String name, String table, String column) {
+    return _client
+        .channel('moni-$name-$_userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: table,
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: column,
+            value: _userId,
+          ),
+          callback: (_) => _load(),
+        )
+        .subscribe();
+  }
 
   Future<void> _load() async {
     try {
@@ -101,6 +136,9 @@ class DebtController extends StateNotifier<DebtState> {
                   ? 'Approve settlement for all active debts with this friend.'
                   : 'Approve settlement for one debt transaction.',
               debtIds: debtIds,
+              paymentInfo: SettlementPaymentInfo.fromJson(
+                payload['payment'] as Map<String, dynamic>?,
+              ),
             ),
           );
         }
@@ -109,7 +147,10 @@ class DebtController extends StateNotifier<DebtState> {
       if (mounted) {
         state = DebtState(debts: debts, requests: requests);
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      debugPrint('DebtController load failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   Future<void> createDebtRequest({
@@ -164,10 +205,7 @@ class DebtController extends StateNotifier<DebtState> {
     final debt = request.debt;
     if (debt == null) return;
 
-    await _client
-        .from('debts')
-        .update({'status': 'active'})
-        .eq('id', debt.id);
+    await _client.from('debts').update({'status': 'active'}).eq('id', debt.id);
     await _client
         .from('inbox_items')
         .update({'status': 'accepted'})
@@ -179,9 +217,7 @@ class DebtController extends StateNotifier<DebtState> {
           for (final d in state.debts)
             d.id == debt.id ? d.copyWith(status: DebtStatus.active) : d,
         ],
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }
@@ -205,14 +241,15 @@ class DebtController extends StateNotifier<DebtState> {
         debts: debt != null
             ? state.debts.where((d) => d.id != debt.id).toList()
             : state.debts,
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }
 
-  Future<void> createSettlementRequest(String debtId) async {
+  Future<void> createSettlementRequest(
+    String debtId, {
+    SettlementPaymentInfo paymentInfo = const SettlementPaymentInfo.cash(),
+  }) async {
     final debt = state.debts.firstWhere((item) => item.id == debtId);
     await _client.from('inbox_items').insert({
       'recipient_id': debt.friendId,
@@ -220,11 +257,15 @@ class DebtController extends StateNotifier<DebtState> {
       'type': 'settlement_request',
       'payload': {
         'debt_ids': [debtId],
+        'payment': paymentInfo.toJson(),
       },
     });
   }
 
-  Future<void> createSettleAllRequest(String friendId) async {
+  Future<void> createSettleAllRequest(
+    String friendId, {
+    SettlementPaymentInfo paymentInfo = const SettlementPaymentInfo.cash(),
+  }) async {
     final debtIds = state.debts
         .where((d) => d.friendId == friendId && d.status == DebtStatus.active)
         .map((d) => d.id)
@@ -234,7 +275,7 @@ class DebtController extends StateNotifier<DebtState> {
       'recipient_id': friendId,
       'sender_id': _userId,
       'type': 'settlement_request',
-      'payload': {'debt_ids': debtIds},
+      'payload': {'debt_ids': debtIds, 'payment': paymentInfo.toJson()},
     });
   }
 
@@ -245,7 +286,10 @@ class DebtController extends StateNotifier<DebtState> {
 
     await _client
         .from('debts')
-        .update({'status': 'settled', 'updated_at': settledAt.toIso8601String()})
+        .update({
+          'status': 'settled',
+          'updated_at': settledAt.toIso8601String(),
+        })
         .inFilter('id', targetIds.toList());
     await _client
         .from('inbox_items')
@@ -260,9 +304,7 @@ class DebtController extends StateNotifier<DebtState> {
                 ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
                 : d,
         ],
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }
@@ -274,13 +316,18 @@ class DebtController extends StateNotifier<DebtState> {
         .eq('id', requestId);
     if (mounted) {
       state = state.copyWith(
-        requests: state.requests
-            .where((item) => item.id != requestId)
-            .toList(),
+        requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
   }
 
+  @override
+  void dispose() {
+    for (final channel in _channels) {
+      _client.removeChannel(channel);
+    }
+    super.dispose();
+  }
 }
 
 final totalLentProvider = Provider<double>((ref) {

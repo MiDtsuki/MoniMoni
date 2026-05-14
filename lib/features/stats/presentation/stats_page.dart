@@ -60,78 +60,84 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1040),
-            child: CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _MonthBar(
-                          month: _selectedMonth,
-                          onPrevious: () => _moveMonth(-1),
-                          onNext: () => _moveMonth(1),
-                        ),
-                        const SizedBox(height: 22),
-                        _StatsTabs(
-                          selectedType: _selectedType,
-                          incomeTotal: totalIncome,
-                          expenseTotal: totalExpense,
-                          onChanged: (type) {
-                            setState(() => _selectedType = type);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                  sliver: SliverToBoxAdapter(
-                    child: entries.isEmpty
-                        ? EmptyState(
-                            title:
-                                'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} this month',
-                            message:
-                                'Add transactions in ${DateFormat('MMMM yyyy').format(_selectedMonth)} to see category statistics.',
-                            icon: LucideIcons.chartPie,
-                          )
-                        : LayoutBuilder(
-                            builder: (context, constraints) {
-                              final wide = constraints.maxWidth >= 860;
-                              final chart = _LargePiePanel(
-                                entries: entries,
-                                total: selectedTotal,
-                                colors: colors,
-                              );
-                              final list = _BreakdownList(
-                                entries: entries,
-                                total: selectedTotal,
-                                colors: colors,
-                              );
-
-                              if (wide) {
-                                return Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(flex: 5, child: chart),
-                                    const SizedBox(width: 18),
-                                    Expanded(flex: 4, child: list),
-                                  ],
-                                );
-                              }
-                              return Column(
-                                children: [
-                                  chart,
-                                  const SizedBox(height: 16),
-                                  list,
-                                ],
-                              );
+            child: RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(transactionControllerProvider.notifier).refresh(),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _MonthBar(
+                            month: _selectedMonth,
+                            onPrevious: () => _moveMonth(-1),
+                            onNext: () => _moveMonth(1),
+                          ),
+                          const SizedBox(height: 22),
+                          _StatsTabs(
+                            selectedType: _selectedType,
+                            incomeTotal: totalIncome,
+                            expenseTotal: totalExpense,
+                            onChanged: (type) {
+                              setState(() => _selectedType = type);
                             },
                           ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                    sliver: SliverToBoxAdapter(
+                      child: entries.isEmpty
+                          ? EmptyState(
+                              title:
+                                  'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} this month',
+                              message:
+                                  'Add transactions in ${DateFormat('MMMM yyyy').format(_selectedMonth)} to see category statistics.',
+                              icon: LucideIcons.chartPie,
+                            )
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                final wide = constraints.maxWidth >= 860;
+                                final chart = _LargePiePanel(
+                                  entries: entries,
+                                  total: selectedTotal,
+                                  colors: colors,
+                                );
+                                final list = _BreakdownList(
+                                  entries: entries,
+                                  total: selectedTotal,
+                                  colors: colors,
+                                );
+
+                                if (wide) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(flex: 5, child: chart),
+                                      const SizedBox(width: 18),
+                                      Expanded(flex: 4, child: list),
+                                    ],
+                                  );
+                                }
+                                return Column(
+                                  children: [
+                                    chart,
+                                    const SizedBox(height: 16),
+                                    list,
+                                  ],
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

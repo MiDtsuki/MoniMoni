@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/supabase_providers.dart';
+import '../../debts/application/debt_controller.dart';
+import '../../debts/application/friends_controller.dart';
+import '../../profile/application/profile_settings_controller.dart';
+import '../../transactions/application/transaction_controller.dart';
 import 'login_page.dart';
 
-class SignupPage extends StatefulWidget {
+class SignupPage extends ConsumerStatefulWidget {
   const SignupPage({super.key});
 
   @override
-  State<SignupPage> createState() => _SignupPageState();
+  ConsumerState<SignupPage> createState() => _SignupPageState();
 }
 
-class _SignupPageState extends State<SignupPage> {
+class _SignupPageState extends ConsumerState<SignupPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -168,6 +174,7 @@ class _SignupPageState extends State<SignupPage> {
 
       if (response.session != null) {
         // Email confirmation disabled — logged in immediately
+        _invalidateAccountProviders();
         context.go('/logs');
       } else {
         // Email confirmation required
@@ -198,14 +205,20 @@ class _SignupPageState extends State<SignupPage> {
       debugPrint('==============================');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$e'),
-          duration: const Duration(seconds: 10),
-        ),
+        SnackBar(content: Text('$e'), duration: const Duration(seconds: 10)),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _invalidateAccountProviders() {
+    ref
+      ..invalidate(currentUserProvider)
+      ..invalidate(transactionControllerProvider)
+      ..invalidate(debtControllerProvider)
+      ..invalidate(friendsControllerProvider)
+      ..invalidate(profileSettingsProvider);
   }
 }
 

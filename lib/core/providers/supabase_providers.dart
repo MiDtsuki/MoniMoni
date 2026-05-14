@@ -5,9 +5,18 @@ final supabaseClientProvider = Provider<SupabaseClient>(
   (_) => Supabase.instance.client,
 );
 
-final currentUserProvider = Provider<User?>(
-  (_) => Supabase.instance.client.auth.currentUser,
+final authStateProvider = StreamProvider<AuthState>(
+  (_) => Supabase.instance.client.auth.onAuthStateChange,
 );
+
+final currentUserProvider = Provider<User?>((ref) {
+  final authState = ref.watch(authStateProvider);
+  return authState.when(
+    data: (state) => state.session?.user,
+    loading: () => Supabase.instance.client.auth.currentUser,
+    error: (_, _) => Supabase.instance.client.auth.currentUser,
+  );
+});
 
 final currentUserIdProvider = Provider<String>((ref) {
   final user = ref.watch(currentUserProvider);

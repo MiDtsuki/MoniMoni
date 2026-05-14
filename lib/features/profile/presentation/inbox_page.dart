@@ -13,6 +13,7 @@ import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 import '../../debts/domain/debt_model.dart';
 import '../../debts/domain/friend_model.dart';
+import '../../debts/domain/settlement_payment_info.dart';
 
 class InboxPage extends ConsumerWidget {
   const InboxPage({super.key});
@@ -29,6 +30,12 @@ class InboxPage extends ConsumerWidget {
       body: AppPage(
         title: 'Inbox',
         subtitle: 'Friend, debt, and settlement requests.',
+        onRefresh: () async {
+          await Future.wait([
+            ref.read(debtControllerProvider.notifier).refresh(),
+            ref.read(friendsControllerProvider.notifier).refresh(),
+          ]);
+        },
         action: TextButton(
           onPressed: () => context.go('/profile'),
           child: const Text('Close'),
@@ -86,9 +93,9 @@ class _FriendRequestCardState extends ConsumerState<_FriendRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -108,9 +115,9 @@ class _FriendRequestCardState extends ConsumerState<_FriendRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -194,9 +201,9 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -223,9 +230,9 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -257,6 +264,7 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
     final isSettleAll =
         isSettlement && widget.request.debtIds.length > 1 ||
         widget.request.title.toLowerCase().contains('all');
+    final paymentInfo = widget.request.paymentInfo;
 
     return MoniCard(
       child: Column(
@@ -295,8 +303,8 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
           Text(
             isSettlement
                 ? isSettleAll
-                      ? 'Settle all active transactions with this friend.'
-                      : 'Settle one active debt transaction.'
+                      ? _settlementDescription(paymentInfo, true)
+                      : _settlementDescription(paymentInfo, false)
                 : widget.request.description,
           ),
           if (debt != null) ...[
@@ -316,6 +324,12 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
           if (isSettlement) ...[
             const SizedBox(height: 12),
             _DetailRow(
+              label: 'Payment',
+              value: paymentInfo.isTransfer
+                  ? 'Verified transfer'
+                  : 'Cash settlement',
+            ),
+            _DetailRow(
               label: 'Transactions',
               value: '${settlementDebts.length}',
             ),
@@ -323,6 +337,11 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
               label: 'Amount',
               value: CurrencyFormatter.compact(settlementTotal),
             ),
+            if (paymentInfo.isTransfer && paymentInfo.amountInSlip != null)
+              _DetailRow(
+                label: 'Verified',
+                value: CurrencyFormatter.compact(paymentInfo.amountInSlip!),
+              ),
           ],
           const SizedBox(height: 14),
           if (_loading)
@@ -349,6 +368,21 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
       ),
     );
   }
+}
+
+String _settlementDescription(
+  SettlementPaymentInfo paymentInfo,
+  bool isSettleAll,
+) {
+  final scope = isSettleAll
+      ? 'all active transactions'
+      : 'one active debt transaction';
+  if (paymentInfo.isTransfer && paymentInfo.verified) {
+    return 'This user settled $scope through a verified bank transfer.';
+  }
+  return isSettleAll
+      ? 'Settle all active transactions with this friend.'
+      : 'Settle one active debt transaction.';
 }
 
 class _DetailRow extends StatelessWidget {

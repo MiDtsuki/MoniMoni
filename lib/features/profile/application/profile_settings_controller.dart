@@ -5,7 +5,8 @@ import '../../../core/providers/supabase_providers.dart';
 
 final profileSettingsProvider =
     StateNotifierProvider<ProfileSettingsController, ProfileSettings>((ref) {
-      return ProfileSettingsController(ref);
+      final userId = ref.watch(currentUserIdProvider);
+      return ProfileSettingsController(ref, userId);
     });
 
 class ProfileSettings {
@@ -49,15 +50,17 @@ class CurrencyOption {
 }
 
 class ProfileSettingsController extends StateNotifier<ProfileSettings> {
-  ProfileSettingsController(this._ref)
+  ProfileSettingsController(this._ref, this._userId)
     : super(const ProfileSettings(currency: defaultCurrency)) {
     _load();
   }
 
   final Ref _ref;
+  final String _userId;
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
-  String get _userId => _ref.read(currentUserIdProvider);
+
+  Future<void> refresh() => _load();
 
   Future<void> _load() async {
     final user = _client.auth.currentUser;
