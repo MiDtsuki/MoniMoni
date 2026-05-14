@@ -2,34 +2,65 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../data/local/guest_store.dart';
 import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../domain/transaction_model.dart';
 
 final transactionControllerProvider =
     StateNotifierProvider<TransactionController, List<TransactionModel>>((ref) {
-      final userId = ref.watch(currentUserIdProvider);
-      return TransactionController(ref, userId);
+      final isGuest = ref.watch(isGuestModeProvider);
+      if (isGuest) {
+        return TransactionController.guest(ref);
+      }
+      final user = ref.watch(currentUserProvider);
+      if (user == null) {
+        return TransactionController.signedOut(ref);
+      }
+      return TransactionController.remote(ref, user.id);
     });
 
 class TransactionController extends StateNotifier<List<TransactionModel>> {
-  TransactionController(this._ref, this._userId) : super(const []) {
+  TransactionController.remote(this._ref, this._userId)
+    : _isGuest = false,
+      super(const []) {
     _load();
   }
 
+  TransactionController.guest(this._ref)
+    : _userId = null,
+      _isGuest = true,
+      super(const []) {
+    _load();
+  }
+
+  TransactionController.signedOut(this._ref)
+    : _userId = null,
+      _isGuest = false,
+      super(const []);
+
   final Ref _ref;
-  final String _userId;
+  final String? _userId;
+  final bool _isGuest;
   static const _uuid = Uuid();
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
+  GuestStore get _guestStore => _ref.read(guestStoreProvider);
 
   Future<void> refresh() => _load();
 
   Future<void> _load() async {
     try {
+      if (_isGuest) {
+        final rows = await _guestStore.loadTransactions();
+        rows.sort((a, b) => b.date.compareTo(a.date));
+        if (mounted) state = rows;
+        return;
+      }
       final rows = await _client
           .from('transactions')
           .select()
-          .eq('user_id', _userId)
+          .eq('user_id', _userId!)
           .isFilter('deleted_at', null)
           .order('date', ascending: false)
           .order('created_at', ascending: false);
@@ -60,7 +91,11 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
     );
     state = [tx, ...state];
     try {
-      await _client.from('transactions').insert(tx.toJson(_userId));
+      if (_isGuest) {
+        await _guestStore.saveTransactions(state);
+      } else {
+        await _client.from('transactions').insert(tx.toJson(_userId!));
+      }
     } catch (e) {
       if (mounted) state = state.where((item) => item.id != tx.id).toList();
       rethrow;
@@ -74,10 +109,14 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
         if (item.id == transaction.id) transaction else item,
     ];
     try {
-      await _client
-          .from('transactions')
-          .update(transaction.toJson(_userId))
-          .eq('id', transaction.id);
+      if (_isGuest) {
+        await _guestStore.saveTransactions(state);
+      } else {
+        await _client
+            .from('transactions')
+            .update(transaction.toJson(_userId!))
+            .eq('id', transaction.id);
+      }
     } catch (e) {
       if (mounted) {
         state = [
@@ -93,10 +132,14 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
     final prev = state.firstWhere((item) => item.id == id);
     state = state.where((item) => item.id != id).toList();
     try {
-      await _client
-          .from('transactions')
-          .update({'deleted_at': DateTime.now().toIso8601String()})
-          .eq('id', id);
+      if (_isGuest) {
+        await _guestStore.saveTransactions(state);
+      } else {
+        await _client
+            .from('transactions')
+            .update({'deleted_at': DateTime.now().toIso8601String()})
+            .eq('id', id);
+      }
     } catch (e) {
       if (mounted) state = [prev, ...state];
       rethrow;

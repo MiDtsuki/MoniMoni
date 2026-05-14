@@ -2,11 +2,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 
 final profileSettingsProvider =
     StateNotifierProvider<ProfileSettingsController, ProfileSettings>((ref) {
-      final userId = ref.watch(currentUserIdProvider);
-      return ProfileSettingsController(ref, userId);
+      final isGuest = ref.watch(isGuestModeProvider);
+      if (isGuest) {
+        return ProfileSettingsController.guest(ref);
+      }
+      final user = ref.watch(currentUserProvider);
+      if (user == null) {
+        return ProfileSettingsController.signedOut(ref);
+      }
+      return ProfileSettingsController.remote(ref, user.id);
     });
 
 class ProfileSettings {
@@ -50,13 +58,27 @@ class CurrencyOption {
 }
 
 class ProfileSettingsController extends StateNotifier<ProfileSettings> {
-  ProfileSettingsController(this._ref, this._userId)
+  ProfileSettingsController.remote(this._ref, this._userId)
     : super(const ProfileSettings(currency: defaultCurrency)) {
     _load();
   }
 
+  ProfileSettingsController.guest(this._ref)
+    : _userId = null,
+      super(
+        const ProfileSettings(
+          currency: defaultCurrency,
+          displayName: 'Guest',
+          username: 'offline',
+        ),
+      );
+
+  ProfileSettingsController.signedOut(this._ref)
+    : _userId = null,
+      super(const ProfileSettings(currency: defaultCurrency));
+
   final Ref _ref;
-  final String _userId;
+  final String? _userId;
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
 
@@ -101,7 +123,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
       return await _client
           .from('profiles')
           .select('display_name, username, currency, credit_score')
-          .eq('id', _userId)
+          .eq('id', _userId!)
           .maybeSingle();
     } on PostgrestException catch (error) {
       // Older remote databases may not have credit_score until migrations run.
@@ -109,7 +131,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
       return await _client
           .from('profiles')
           .select('display_name, username, currency')
-          .eq('id', _userId)
+          .eq('id', _userId!)
           .maybeSingle();
     }
   }
@@ -150,6 +172,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
 
   Future<void> setCurrency(CurrencyOption currency) async {
     state = state.copyWith(currency: currency);
+    if (_userId == null) return;
     try {
       await _client
           .from('profiles')

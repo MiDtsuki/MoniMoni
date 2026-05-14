@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/providers/session_providers.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/otp_verify_page.dart';
 import '../features/auth/presentation/reset_password_page.dart';
@@ -32,6 +33,7 @@ class _AuthChangeNotifier extends ChangeNotifier {
       }
       notifyListeners();
     });
+    guestSession.addListener(notifyListeners);
   }
 }
 
@@ -42,6 +44,7 @@ final appRouter = GoRouter(
   refreshListenable: _authNotifier,
   redirect: (context, state) {
     final loggedIn = Supabase.instance.client.auth.currentSession != null;
+    final isGuest = guestSession.isGuest;
     final isAuthRoute =
         state.matchedLocation == '/login' || state.matchedLocation == '/signup';
     final isResetRoute = state.matchedLocation == '/reset-password';
@@ -50,10 +53,10 @@ final appRouter = GoRouter(
     if (_authNotifier.lastEvent == AuthChangeEvent.passwordRecovery) {
       return '/reset-password';
     }
-    if (!loggedIn && !isAuthRoute && !isResetRoute && !isOtpRoute) {
+    if (!loggedIn && !isGuest && !isAuthRoute && !isResetRoute && !isOtpRoute) {
       return '/login';
     }
-    if (loggedIn && isAuthRoute) {
+    if ((loggedIn || isGuest) && isAuthRoute) {
       return '/logs';
     }
     return null;

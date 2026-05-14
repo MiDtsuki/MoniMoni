@@ -2,12 +2,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../domain/friend_model.dart';
 
 final friendsControllerProvider =
     StateNotifierProvider<FriendsController, FriendsState>((ref) {
-      final userId = ref.watch(currentUserIdProvider);
-      return FriendsController(ref, userId);
+      final isGuest = ref.watch(isGuestModeProvider);
+      if (isGuest) {
+        return FriendsController.guest(ref);
+      }
+      final user = ref.watch(currentUserProvider);
+      if (user == null) {
+        return FriendsController.guest(ref);
+      }
+      return FriendsController.remote(ref, user.id);
     });
 
 class FriendsState {
@@ -31,13 +39,17 @@ class FriendsState {
 }
 
 class FriendsController extends StateNotifier<FriendsState> {
-  FriendsController(this._ref, this._userId)
+  FriendsController.remote(this._ref, this._userId)
     : super(const FriendsState(friends: [], requests: [])) {
     _load();
   }
 
+  FriendsController.guest(this._ref)
+    : _userId = null,
+      super(const FriendsState(friends: [], requests: []));
+
   final Ref _ref;
-  final String _userId;
+  final String? _userId;
   final Set<String> _sentRequestIds = {};
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
@@ -47,6 +59,7 @@ class FriendsController extends StateNotifier<FriendsState> {
   Future<void> _load() async {
     try {
       final userId = _userId;
+      if (userId == null) return;
 
       // Load friendships
       final friendshipRows = await _client
@@ -124,6 +137,7 @@ class FriendsController extends StateNotifier<FriendsState> {
 
     try {
       final userId = _userId;
+      if (userId == null) return [];
       final friendIds = state.friends.map((f) => f.id).toSet();
       final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
 
@@ -154,7 +168,7 @@ class FriendsController extends StateNotifier<FriendsState> {
     try {
       await _client.from('inbox_items').insert({
         'recipient_id': user.id,
-        'sender_id': _userId,
+        'sender_id': _userId!,
         'type': 'friend_request',
         'payload': <String, dynamic>{},
       });
@@ -170,7 +184,7 @@ class FriendsController extends StateNotifier<FriendsState> {
         .update({'status': 'accepted'})
         .eq('id', requestId);
     await _client.from('friendships').insert({
-      'user_id': _userId,
+      'user_id': _userId!,
       'friend_id': request.user.id,
     });
     if (mounted) {

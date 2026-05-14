@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 import '../../profile/application/profile_settings_controller.dart';
@@ -95,6 +96,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   : const Icon(LucideIcons.logIn),
               label: const Text('Log in'),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _continueAsGuest,
+              icon: const Icon(LucideIcons.wifiOff),
+              label: const Text('Continue as guest'),
+            ),
             const SizedBox(height: 20),
             _AuthSwitchRow(
               text: 'New to Moni?',
@@ -144,6 +151,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _continueAsGuest() async {
+    await guestSession.enter();
+    _invalidateAccountProviders();
+    if (mounted) context.go('/logs');
   }
 
   void _invalidateAccountProviders() {

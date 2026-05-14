@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/session_providers.dart';
 import '../../../core/providers/supabase_providers.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
@@ -31,6 +32,7 @@ class ProfilePage extends ConsumerWidget {
     final debtNet = ref.watch(netDebtProvider);
     final notificationCount = ref.watch(pendingNotificationCountProvider);
     final settings = ref.watch(profileSettingsProvider);
+    final isGuest = ref.watch(isGuestModeProvider);
     final finalSummary = monthlyIncome - monthlyExpense + debtNet;
 
     return AppPage(
@@ -44,15 +46,17 @@ class ProfilePage extends ConsumerWidget {
           ref.read(profileSettingsProvider.notifier).refresh(),
         ]);
       },
-      action: IconButton.filledTonal(
-        onPressed: () => context.go('/profile/inbox'),
-        icon: notificationCount == 0
-            ? const Icon(LucideIcons.bell)
-            : Badge.count(
-                count: notificationCount,
-                child: const Icon(LucideIcons.bell),
-              ),
-      ),
+      action: isGuest
+          ? null
+          : IconButton.filledTonal(
+              onPressed: () => context.go('/profile/inbox'),
+              icon: notificationCount == 0
+                  ? const Icon(LucideIcons.bell)
+                  : Badge.count(
+                      count: notificationCount,
+                      child: const Icon(LucideIcons.bell),
+                    ),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -104,8 +108,10 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: 18),
           _SettingsSection(currency: settings.currency),
-          const SizedBox(height: 18),
-          const _AddFriendSection(),
+          if (!isGuest) ...[
+            const SizedBox(height: 18),
+            const _AddFriendSection(),
+          ],
           const SizedBox(height: 18),
           _SignOutButton(),
         ],
@@ -168,14 +174,19 @@ class _UserHeader extends ConsumerWidget {
 class _SignOutButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(isGuestModeProvider);
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: () async {
           try {
-            await Supabase.instance.client.auth.signOut(
-              scope: SignOutScope.local,
-            );
+            if (isGuest) {
+              await guestSession.exit();
+            } else {
+              await Supabase.instance.client.auth.signOut(
+                scope: SignOutScope.local,
+              );
+            }
           } finally {
             ref
               ..invalidate(currentUserProvider)
@@ -189,7 +200,7 @@ class _SignOutButton extends ConsumerWidget {
           }
         },
         icon: const Icon(LucideIcons.logOut),
-        label: const Text('Sign out'),
+        label: Text(isGuest ? 'Exit guest mode' : 'Sign out'),
       ),
     );
   }

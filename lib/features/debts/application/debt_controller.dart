@@ -3,13 +3,21 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../domain/debt_model.dart';
 import '../domain/settlement_payment_info.dart';
 
 final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
   (ref) {
-    final userId = ref.watch(currentUserIdProvider);
-    return DebtController(ref, userId);
+    final isGuest = ref.watch(isGuestModeProvider);
+    if (isGuest) {
+      return DebtController.guest(ref);
+    }
+    final user = ref.watch(currentUserProvider);
+    if (user == null) {
+      return DebtController.guest(ref);
+    }
+    return DebtController.remote(ref, user.id);
   },
 );
 
@@ -33,14 +41,21 @@ class DebtState {
 }
 
 class DebtController extends StateNotifier<DebtState> {
-  DebtController(this._ref, this._userId)
-    : super(const DebtState(debts: [], requests: [])) {
+  DebtController.remote(this._ref, this._userId)
+    : _isGuest = false,
+      super(const DebtState(debts: [], requests: [])) {
     _load();
     _subscribeToRemoteChanges();
   }
 
+  DebtController.guest(this._ref)
+    : _userId = null,
+      _isGuest = true,
+      super(const DebtState(debts: [], requests: []));
+
   final Ref _ref;
-  final String _userId;
+  final String? _userId;
+  final bool _isGuest;
   final List<RealtimeChannel> _channels = [];
 
   SupabaseClient get _client => _ref.read(supabaseClientProvider);
@@ -48,6 +63,7 @@ class DebtController extends StateNotifier<DebtState> {
   Future<void> refresh() => _load();
 
   void _subscribeToRemoteChanges() {
+    if (_isGuest) return;
     _channels
       ..add(_watchTable('inbox-recipient', 'inbox_items', 'recipient_id'))
       ..add(_watchTable('inbox-sender', 'inbox_items', 'sender_id'))
@@ -75,6 +91,7 @@ class DebtController extends StateNotifier<DebtState> {
   Future<void> _load() async {
     try {
       final userId = _userId;
+      if (userId == null) return;
 
       final debtRows = await _client
           .from('debts')
@@ -162,6 +179,7 @@ class DebtController extends StateNotifier<DebtState> {
     String? note,
   }) async {
     final userId = _userId;
+    if (userId == null) return;
     final dbDirection = direction == DebtDirection.owedToMe ? 'lend' : 'borrow';
 
     final debtRow = <String, dynamic>{
@@ -253,7 +271,7 @@ class DebtController extends StateNotifier<DebtState> {
     final debt = state.debts.firstWhere((item) => item.id == debtId);
     await _client.from('inbox_items').insert({
       'recipient_id': debt.friendId,
-      'sender_id': _userId,
+      'sender_id': _userId!,
       'type': 'settlement_request',
       'payload': {
         'debt_ids': [debtId],
@@ -273,7 +291,7 @@ class DebtController extends StateNotifier<DebtState> {
     if (debtIds.isEmpty) return;
     await _client.from('inbox_items').insert({
       'recipient_id': friendId,
-      'sender_id': _userId,
+      'sender_id': _userId!,
       'type': 'settlement_request',
       'payload': {'debt_ids': debtIds, 'payment': paymentInfo.toJson()},
     });
