@@ -5,9 +5,16 @@ final supabaseClientProvider = Provider<SupabaseClient>(
   (_) => Supabase.instance.client,
 );
 
-final currentUserProvider = Provider<User?>(
-  (_) => Supabase.instance.client.auth.currentUser,
+// Subscribes to the Supabase auth stream so auth-derived providers
+// automatically rebuild on sign-in, sign-out, and session restore.
+final _authStateChangedProvider = StreamProvider<AuthState>(
+  (_) => Supabase.instance.client.auth.onAuthStateChange,
 );
+
+final currentUserProvider = Provider<User?>((ref) {
+  ref.watch(_authStateChangedProvider);
+  return Supabase.instance.client.auth.currentUser;
+});
 
 final currentUserIdProvider = Provider<String>((ref) {
   final user = ref.watch(currentUserProvider);

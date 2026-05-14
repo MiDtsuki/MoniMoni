@@ -4,9 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/providers/supabase_providers.dart';
 import '../domain/debt_model.dart';
 
-final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
-  (ref) => DebtController(ref),
-);
+final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>((ref) {
+  ref.watch(currentUserProvider);
+  return DebtController(ref);
+});
 
 class DebtState {
   const DebtState({required this.debts, required this.requests});

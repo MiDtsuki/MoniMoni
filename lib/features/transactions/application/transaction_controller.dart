@@ -27,6 +27,8 @@ abstract class BaseTransactionController
 
 final transactionControllerProvider =
     StateNotifierProvider<BaseTransactionController, List<TransactionModel>>((ref) {
+      // Watch user so this provider rebuilds on sign-in / sign-out
+      ref.watch(currentUserProvider);
       if (ref.watch(isGuestProvider)) return GuestTransactionController(ref);
       return TransactionController(ref);
     });

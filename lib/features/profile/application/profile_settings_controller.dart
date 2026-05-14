@@ -13,6 +13,8 @@ abstract class BaseProfileSettingsController
 
 final profileSettingsProvider =
     StateNotifierProvider<BaseProfileSettingsController, ProfileSettings>((ref) {
+      // Watch user so this provider rebuilds on sign-in / sign-out
+      ref.watch(currentUserProvider);
       if (ref.watch(isGuestProvider)) return GuestProfileSettingsController(ref);
       return ProfileSettingsController(ref);
     });

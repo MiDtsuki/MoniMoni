@@ -6,6 +6,7 @@ import '../domain/friend_model.dart';
 
 final friendsControllerProvider =
     StateNotifierProvider<FriendsController, FriendsState>((ref) {
+      ref.watch(currentUserProvider);
       return FriendsController(ref);
     });
 
