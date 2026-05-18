@@ -14,6 +14,7 @@ import '../../debts/application/friends_controller.dart';
 import '../../debts/domain/debt_model.dart';
 import '../../debts/domain/friend_model.dart';
 import '../../debts/domain/settlement_payment_info.dart';
+import '../application/profile_settings_controller.dart';
 
 class InboxPage extends ConsumerWidget {
   const InboxPage({super.key});
@@ -241,6 +242,7 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
 
   @override
   Widget build(BuildContext context) {
+    final symbol = ref.watch(currencySymbolProvider);
     final friends = ref.watch(friendsControllerProvider).friends;
     final friend = friends.firstWhere(
       (item) => item.id == widget.request.friendId,
@@ -312,7 +314,7 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
             _DetailRow(label: 'Type', value: debt.isLent ? 'Lend' : 'Borrow'),
             _DetailRow(
               label: 'Amount',
-              value: CurrencyFormatter.compact(debt.amount),
+              value: CurrencyFormatter.compact(debt.amount, symbol),
             ),
             if (debt.deadline != null)
               _DetailRow(
@@ -335,12 +337,12 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
             ),
             _DetailRow(
               label: 'Amount',
-              value: CurrencyFormatter.compact(settlementTotal),
+              value: CurrencyFormatter.compact(settlementTotal, symbol),
             ),
             if (paymentInfo.isTransfer && paymentInfo.amountInSlip != null)
               _DetailRow(
                 label: 'Verified',
-                value: CurrencyFormatter.compact(paymentInfo.amountInSlip!),
+                value: CurrencyFormatter.compact(paymentInfo.amountInSlip!, symbol),
               ),
           ],
           const SizedBox(height: 14),

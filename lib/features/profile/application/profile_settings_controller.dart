@@ -4,6 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/providers/supabase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 
+final currencySymbolProvider = Provider<String>((ref) {
+  return ref.watch(profileSettingsProvider).currency.symbol;
+});
+
 final profileSettingsProvider =
     StateNotifierProvider<ProfileSettingsController, ProfileSettings>((ref) {
       final isGuest = ref.watch(isGuestModeProvider);

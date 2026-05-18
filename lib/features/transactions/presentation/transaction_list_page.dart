@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../app/theme.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../profile/application/profile_settings_controller.dart';
 import '../application/transaction_controller.dart';
 import '../domain/transaction_model.dart';
 
@@ -155,6 +156,7 @@ class _TransactionListPageState extends ConsumerState<TransactionListPage> {
     return showModalBottomSheet<DateTime>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => SafeArea(child: picker),
     );
   }
@@ -399,7 +401,7 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
-class _SummaryItem extends StatelessWidget {
+class _SummaryItem extends ConsumerWidget {
   const _SummaryItem({
     required this.label,
     required this.value,
@@ -411,7 +413,8 @@ class _SummaryItem extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     return Expanded(
       child: Column(
         children: [
@@ -419,7 +422,7 @@ class _SummaryItem extends StatelessWidget {
           const SizedBox(height: 4),
           FittedBox(
             child: Text(
-              CurrencyFormatter.compact(value),
+              CurrencyFormatter.compact(value, symbol),
               style: TextStyle(
                 color: color,
                 fontSize: 18,
@@ -557,19 +560,20 @@ class _DayHeader extends StatelessWidget {
   }
 }
 
-class _DailyAmount extends StatelessWidget {
+class _DailyAmount extends ConsumerWidget {
   const _DailyAmount({required this.value, required this.color});
 
   final double value;
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 120),
       child: FittedBox(
         child: Text(
-          CurrencyFormatter.compact(value),
+          CurrencyFormatter.compact(value, symbol),
           style: TextStyle(
             color: color,
             fontSize: 16,
@@ -581,7 +585,7 @@ class _DailyAmount extends StatelessWidget {
   }
 }
 
-class _TransactionCompactRow extends StatelessWidget {
+class _TransactionCompactRow extends ConsumerWidget {
   const _TransactionCompactRow({
     required this.transaction,
     required this.onTap,
@@ -591,7 +595,8 @@ class _TransactionCompactRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     final isIncome = transaction.type == TransactionType.income;
     final amountColor = isIncome ? MoniTheme.primaryGreen : MoniTheme.deepGreen;
 
@@ -640,7 +645,7 @@ class _TransactionCompactRow extends StatelessWidget {
                 constraints: const BoxConstraints(maxWidth: 130),
                 child: FittedBox(
                   child: Text(
-                    CurrencyFormatter.compact(transaction.amount),
+                    CurrencyFormatter.compact(transaction.amount, symbol),
                     style: TextStyle(
                       color: amountColor,
                       fontSize: 16,

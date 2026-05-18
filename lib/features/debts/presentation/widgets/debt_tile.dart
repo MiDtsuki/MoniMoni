@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../core/utils/currency_formatter.dart';
+import '../../../profile/application/profile_settings_controller.dart';
 import '../../domain/debt_model.dart';
 
-class DebtTransactionCard extends StatelessWidget {
+class DebtTransactionCard extends ConsumerWidget {
   const DebtTransactionCard({
     required this.debt,
     this.onSettle,
@@ -19,7 +21,8 @@ class DebtTransactionCard extends StatelessWidget {
   final bool settling;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     final isLent = debt.isLent;
     final color = isLent ? MoniTheme.primaryGreen : const Color(0xFF202722);
 
@@ -58,7 +61,7 @@ class DebtTransactionCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  CurrencyFormatter.compact(debt.amount),
+                  CurrencyFormatter.compact(debt.amount, symbol),
                   style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.w900,

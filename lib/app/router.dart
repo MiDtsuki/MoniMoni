@@ -175,7 +175,7 @@ class MoniShell extends ConsumerWidget {
           onDestinationSelected: (index) {
             navigationShell.goBranch(
               index,
-              initialLocation: index == navigationShell.currentIndex,
+              initialLocation: true,
             );
           },
           destinations: [

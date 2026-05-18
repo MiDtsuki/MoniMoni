@@ -94,8 +94,7 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
                               for (final friend in friends)
                                 DropdownMenuItem(
                                   value: friend.id,
-                                  child: Text(
-                                      '${friend.name} ${friend.username}'),
+                                  child: Text(friend.username),
                                 ),
                             ],
                             onChanged: (value) =>
@@ -227,7 +226,7 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
             deadline: _deadline,
             note: _noteController.text,
           );
-      if (mounted) context.go('/profile/inbox');
+      if (mounted) context.pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)

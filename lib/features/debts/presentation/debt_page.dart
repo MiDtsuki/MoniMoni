@@ -36,6 +36,7 @@ class DebtPage extends ConsumerWidget {
     final totalBorrowed = ref.watch(totalBorrowedProvider);
     final netDebt = ref.watch(netDebtProvider);
     final creditScore = ref.watch(profileSettingsProvider).creditScore;
+    final symbol = ref.watch(currencySymbolProvider);
     final blocked = creditScore < _kMinCreditScore;
 
     return AppPage(
@@ -67,16 +68,19 @@ class DebtPage extends ConsumerWidget {
                     label: 'Total lent',
                     value: totalLent,
                     width: width,
+                    symbol: symbol,
                   ),
                   _SummaryCard(
                     label: 'Total borrowed',
                     value: totalBorrowed,
                     width: width,
+                    symbol: symbol,
                   ),
                   _SummaryCard(
                     label: 'True net balance',
                     value: netDebt,
                     width: width,
+                    symbol: symbol,
                   ),
                 ],
               );
@@ -133,6 +137,7 @@ class DebtPage extends ConsumerWidget {
                     friend: friend,
                     debts: debtsForFriend(debtState, friend.id),
                     onTap: () => context.go('/debts/${friend.id}'),
+                    symbol: symbol,
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -150,6 +155,7 @@ class _GuestDebtNotesPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notes = ref.watch(guestDebtNoteControllerProvider);
+    final symbol = ref.watch(currencySymbolProvider);
     final lent = notes
         .where((note) => note.type == GuestDebtNoteType.lent)
         .fold<double>(0, (sum, note) => sum + note.amount);
@@ -175,11 +181,12 @@ class _GuestDebtNotesPage extends ConsumerWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _SummaryCard(label: 'Lent notes', value: lent, width: width),
+                  _SummaryCard(label: 'Lent notes', value: lent, width: width, symbol: symbol),
                   _SummaryCard(
                     label: 'Borrowed notes',
                     value: borrowed,
                     width: width,
+                    symbol: symbol,
                   ),
                 ],
               );
@@ -264,7 +271,7 @@ class _GuestDebtNoteCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                CurrencyFormatter.compact(note.amount),
+                CurrencyFormatter.compact(note.amount, ref.watch(currencySymbolProvider)),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               IconButton(
@@ -427,11 +434,13 @@ class _SummaryCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.width,
+    required this.symbol,
   });
 
   final String label;
   final double value;
   final double width;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -444,7 +453,7 @@ class _SummaryCard extends StatelessWidget {
             Text(label),
             const SizedBox(height: 8),
             Text(
-              CurrencyFormatter.compact(value),
+              CurrencyFormatter.compact(value, symbol),
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ],
@@ -459,11 +468,13 @@ class _FriendCard extends StatelessWidget {
     required this.friend,
     required this.debts,
     required this.onTap,
+    required this.symbol,
   });
 
   final FriendModel friend;
   final List<DebtModel> debts;
   final VoidCallback onTap;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -496,7 +507,7 @@ class _FriendCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 2),
-                  Text(friend.username),
+                  Text('@${friend.username}'),
                 ],
               ),
             ),
@@ -504,7 +515,7 @@ class _FriendCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  CurrencyFormatter.compact(net.abs()),
+                  CurrencyFormatter.compact(net.abs(), symbol),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(label),

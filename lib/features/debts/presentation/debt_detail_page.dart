@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/utils/currency_formatter.dart';
+import '../../profile/application/profile_settings_controller.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
@@ -44,6 +45,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
         amount: amount,
         remark: remark,
         verificationService: _slipVerificationService,
+        symbol: ref.read(currencySymbolProvider),
       ),
     );
   }
@@ -127,6 +129,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
       0,
       (sum, debt) => sum + debt.amount,
     );
+    final symbol = ref.watch(currencySymbolProvider);
 
     return Scaffold(
       body: AppPage(
@@ -156,21 +159,9 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    _MetricCard(
-                      label: 'Lent to friend',
-                      value: lent,
-                      width: width,
-                    ),
-                    _MetricCard(
-                      label: 'Borrowed from friend',
-                      value: borrowed,
-                      width: width,
-                    ),
-                    _MetricCard(
-                      label: 'Final net amount',
-                      value: net,
-                      width: width,
-                    ),
+                    _MetricCard(label: 'Lent to friend', value: lent, width: width, symbol: symbol),
+                    _MetricCard(label: 'Borrowed from friend', value: borrowed, width: width, symbol: symbol),
+                    _MetricCard(label: 'Final net amount', value: net, width: width, symbol: symbol),
                   ],
                 );
               },
@@ -230,11 +221,13 @@ class _SettlementPaymentSheet extends StatefulWidget {
     required this.amount,
     required this.remark,
     required this.verificationService,
+    required this.symbol,
   });
 
   final double amount;
   final String remark;
   final SlipVerificationService verificationService;
+  final String symbol;
 
   @override
   State<_SettlementPaymentSheet> createState() =>
@@ -320,7 +313,7 @@ class _SettlementPaymentSheetState extends State<_SettlementPaymentSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 6),
-            Text('Amount ${CurrencyFormatter.compact(widget.amount)}'),
+            Text('Amount ${CurrencyFormatter.compact(widget.amount, widget.symbol)}'),
             const SizedBox(height: 16),
             SegmentedButton<SettlementPaymentMethod>(
               segments: const [
@@ -381,7 +374,7 @@ class _SettlementPaymentSheetState extends State<_SettlementPaymentSheet> {
               ),
               if (_verifiedTransfer != null) ...[
                 const SizedBox(height: 10),
-                _VerifiedTransferSummary(info: _verifiedTransfer!),
+                _VerifiedTransferSummary(info: _verifiedTransfer!, symbol: widget.symbol),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 10),
@@ -450,9 +443,10 @@ class _PaymentInfoPanel extends StatelessWidget {
 }
 
 class _VerifiedTransferSummary extends StatelessWidget {
-  const _VerifiedTransferSummary({required this.info});
+  const _VerifiedTransferSummary({required this.info, required this.symbol});
 
   final SettlementPaymentInfo info;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -460,7 +454,7 @@ class _VerifiedTransferSummary extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        Chip(label: Text(CurrencyFormatter.compact(info.amountInSlip ?? 0))),
+        Chip(label: Text(CurrencyFormatter.compact(info.amountInSlip ?? 0, symbol))),
         if (info.bankShortName != null) Chip(label: Text(info.bankShortName!)),
         if (info.transactionRef != null)
           Chip(label: Text('Ref ${info.transactionRef!}')),
@@ -474,11 +468,13 @@ class _MetricCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.width,
+    required this.symbol,
   });
 
   final String label;
   final double value;
   final double width;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -491,7 +487,7 @@ class _MetricCard extends StatelessWidget {
             Text(label),
             const SizedBox(height: 8),
             Text(
-              CurrencyFormatter.compact(value),
+              CurrencyFormatter.compact(value, symbol),
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ],
