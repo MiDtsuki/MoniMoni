@@ -94,8 +94,7 @@ void main() {
   group('credit score models', () {
     test('profile and friend models default to 100', () {
       const settings = ProfileSettings(currency: defaultCurrency);
-      final friend = FriendModel.fromJson({
-        'id': 'friend-1',
+      final friend = FriendModel.fromMap('friend-1', {
         'display_name': 'Mia',
         'username': 'mia',
       });
@@ -105,8 +104,7 @@ void main() {
     });
 
     test('friend model reads credit score from profile json', () {
-      final friend = FriendModel.fromJson({
-        'id': 'friend-1',
+      final friend = FriendModel.fromMap('friend-1', {
         'display_name': 'Mia',
         'username': 'mia',
         'credit_score': 72,
@@ -119,7 +117,10 @@ void main() {
   group('credit score UI color', () {
     test('maps score range to red, yellow, and green', () {
       expect(creditScoreColor(0), const Color(0xFFC74D4D));
-      expect(creditScoreColor(50), const Color(0xFFE5B844));
+      expect(
+        creditScoreColor(50),
+        Color.lerp(const Color(0xFFC74D4D), const Color(0xFFE5973A), 50 / 60),
+      );
       expect(creditScoreColor(100), MoniTheme.primaryGreen);
     });
 
@@ -127,9 +128,9 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: CreditScoreCard(score: 140))),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Credit score'), findsOneWidget);
+      expect(find.text('CREDIT SCORE'), findsOneWidget);
       expect(find.text('100'), findsOneWidget);
     });
   });

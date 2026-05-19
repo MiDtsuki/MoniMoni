@@ -1,9 +1,11 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
-import '../../../core/providers/supabase_providers.dart';
 import '../../../features/profile/application/profile_settings_controller.dart';
 import '../domain/debt_model.dart';
 import '../domain/settlement_payment_info.dart';
@@ -18,7 +20,7 @@ final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
     if (user == null) {
       return DebtController.guest(ref);
     }
-    return DebtController.remote(ref, user.id);
+    return DebtController.remote(ref, user.uid);
   },
 );
 
@@ -57,41 +59,33 @@ class DebtController extends StateNotifier<DebtState> {
   final Ref _ref;
   final String? _userId;
   final bool _isGuest;
-  final List<RealtimeChannel> _channels = [];
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
 
-  SupabaseClient get _client => _ref.read(supabaseClientProvider);
+  FirebaseFirestore get _db => _ref.read(firestoreProvider);
 
   Future<void> refresh() => _load();
 
   void _subscribeToRemoteChanges() {
-    if (_isGuest) return;
-    _channels
-      ..add(_watchTable('inbox-recipient', 'inbox_items', 'recipient_id'))
-      ..add(_watchTable('inbox-sender', 'inbox_items', 'sender_id'))
-      ..add(_watchTable('debts-owner', 'debts', 'owner_id'))
-      ..add(_watchTable('debts-counterpart', 'debts', 'counterpart_id'));
-  }
-
-  RealtimeChannel _watchTable(String name, String table, String column) {
-    return _client
-        .channel('moni-$name-$_userId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: table,
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: column,
-            value: _userId,
-          ),
-          callback: (_) => _load(),
-        )
-        .subscribe();
+    if (_isGuest || _userId == null) return;
+    _subscriptions.add(
+      _db
+          .collection('inbox_items')
+          .where('recipient_id', isEqualTo: _userId)
+          .snapshots()
+          .listen((_) => _load()),
+    );
+    _subscriptions.add(
+      _db
+          .collection('debts')
+          .where('participants', arrayContains: _userId)
+          .snapshots()
+          .listen((_) => _load()),
+    );
   }
 
   Future<void> _load() async {
     try {
-      await _client.rpc('apply_overdue_credit_penalties');
+      await _applyOverdueCreditPenalties();
       _ref.read(profileSettingsProvider.notifier).refresh();
     } catch (_) {}
 
@@ -99,40 +93,43 @@ class DebtController extends StateNotifier<DebtState> {
       final userId = _userId;
       if (userId == null) return;
 
-      final debtRows = await _client
-          .from('debts')
-          .select()
-          .or('owner_id.eq.$userId,counterpart_id.eq.$userId')
-          .isFilter('deleted_at', null)
-          .order('created_at', ascending: false);
+      final debtSnapshot = await _db
+          .collection('debts')
+          .where('participants', arrayContains: userId)
+          .get();
 
-      final debts = (debtRows as List)
-          .map((r) => DebtModel.fromJson(r as Map<String, dynamic>, userId))
-          .toList();
+      final debts = debtSnapshot.docs
+          .map((doc) => DebtModel.fromMap(doc.id, doc.data(), userId))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final debtsById = {for (final d in debts) d.id: d};
 
-      final inboxRows = await _client
-          .from('inbox_items')
-          .select()
-          .eq('recipient_id', userId)
-          .eq('status', 'pending')
-          .inFilter('type', ['debt_request', 'settlement_request'])
-          .order('created_at', ascending: false);
+      final inboxSnapshot = await _db
+          .collection('inbox_items')
+          .where('recipient_id', isEqualTo: userId)
+          .where('status', isEqualTo: 'pending')
+          .get();
 
       final requests = <DebtRequestModel>[];
-      for (final row in (inboxRows as List)) {
-        final r = row as Map<String, dynamic>;
-        final type = r['type'] as String;
-        final payload = r['payload'] as Map<String, dynamic>;
-        final senderId = r['sender_id'] as String;
-        final createdAt = DateTime.parse(r['created_at'] as String);
+      for (final doc in inboxSnapshot.docs) {
+        final data = doc.data();
+        final type = data['type'] as String? ?? '';
+        if (type != 'debt_request' && type != 'settlement_request') {
+          continue;
+        }
+
+        final payload = (data['payload'] as Map<String, dynamic>? ??
+                const <String, dynamic>{})
+            .cast<String, dynamic>();
+        final senderId = data['sender_id'] as String? ?? '';
+        final createdAt = _readDate(data['created_at']);
 
         if (type == 'debt_request') {
           final debtId = payload['debt_id'] as String?;
           final debt = debtId != null ? debtsById[debtId] : null;
           requests.add(
             DebtRequestModel(
-              id: r['id'] as String,
+              id: doc.id,
               type: DebtRequestType.debt,
               friendId: senderId,
               createdAt: createdAt,
@@ -143,12 +140,12 @@ class DebtController extends StateNotifier<DebtState> {
               debt: debt,
             ),
           );
-        } else if (type == 'settlement_request') {
-          final debtIds = (payload['debt_ids'] as List<dynamic>? ?? [])
-              .cast<String>();
+        } else {
+          final debtIds =
+              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
           requests.add(
             DebtRequestModel(
-              id: r['id'] as String,
+              id: doc.id,
               type: DebtRequestType.settlement,
               friendId: senderId,
               createdAt: createdAt,
@@ -166,6 +163,8 @@ class DebtController extends StateNotifier<DebtState> {
           );
         }
       }
+
+      requests.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       if (mounted) {
         state = DebtState(debts: debts, requests: requests);
@@ -187,32 +186,34 @@ class DebtController extends StateNotifier<DebtState> {
     final userId = _userId;
     if (userId == null) return;
     final dbDirection = direction == DebtDirection.owedToMe ? 'lend' : 'borrow';
+    final debtRef = _db.collection('debts').doc();
 
-    final debtRow = <String, dynamic>{
+    final debtData = <String, dynamic>{
       'owner_id': userId,
       'counterpart_id': friendId,
+      'participants': [userId, friendId],
       'direction': dbDirection,
       'amount': amount,
       'description': note?.trim().isEmpty ?? true ? null : note?.trim(),
       'status': 'pending',
-      'deadline':
-          '${deadline.year}-${deadline.month.toString().padLeft(2, '0')}-${deadline.day.toString().padLeft(2, '0')}',
-      'created_at': createdAt.toIso8601String(),
+      'deadline': Timestamp.fromDate(
+        DateTime.utc(deadline.year, deadline.month, deadline.day),
+      ),
+      'created_at': Timestamp.fromDate(createdAt.toUtc()),
+      'updated_at': FieldValue.serverTimestamp(),
     };
 
     try {
-      final inserted = await _client
-          .from('debts')
-          .insert(debtRow)
-          .select()
-          .single();
-      final debt = DebtModel.fromJson(inserted, userId);
+      await debtRef.set(debtData);
+      final debt = DebtModel.fromMap(debtRef.id, debtData, userId);
 
-      await _client.from('inbox_items').insert({
+      await _db.collection('inbox_items').add({
         'recipient_id': friendId,
         'sender_id': userId,
         'type': 'debt_request',
         'payload': {'debt_id': debt.id},
+        'status': 'pending',
+        'created_at': FieldValue.serverTimestamp(),
       });
 
       if (mounted) {
@@ -228,11 +229,13 @@ class DebtController extends StateNotifier<DebtState> {
     final debt = request.debt;
     if (debt == null) return;
 
-    await _client.from('debts').update({'status': 'active'}).eq('id', debt.id);
-    await _client
-        .from('inbox_items')
-        .update({'status': 'accepted'})
-        .eq('id', requestId);
+    await _db.collection('debts').doc(debt.id).set({
+      'status': 'active',
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'accepted',
+    }, SetOptions(merge: true));
 
     if (mounted) {
       state = state.copyWith(
@@ -249,15 +252,11 @@ class DebtController extends StateNotifier<DebtState> {
     final request = state.requests.firstWhere((item) => item.id == requestId);
     final debt = request.debt;
 
-    await _client
-        .from('inbox_items')
-        .update({'status': 'declined'})
-        .eq('id', requestId);
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'declined',
+    }, SetOptions(merge: true));
     if (debt != null) {
-      await _client
-          .from('debts')
-          .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-          .eq('id', debt.id);
+      await _db.collection('debts').doc(debt.id).delete();
     }
     if (mounted) {
       state = state.copyWith(
@@ -274,7 +273,7 @@ class DebtController extends StateNotifier<DebtState> {
     SettlementPaymentInfo paymentInfo = const SettlementPaymentInfo.cash(),
   }) async {
     final debt = state.debts.firstWhere((item) => item.id == debtId);
-    await _client.from('inbox_items').insert({
+    await _db.collection('inbox_items').add({
       'recipient_id': debt.friendId,
       'sender_id': _userId!,
       'type': 'settlement_request',
@@ -282,6 +281,8 @@ class DebtController extends StateNotifier<DebtState> {
         'debt_ids': [debtId],
         'payment': paymentInfo.toJson(),
       },
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
     });
   }
 
@@ -294,30 +295,25 @@ class DebtController extends StateNotifier<DebtState> {
         .map((d) => d.id)
         .toList();
     if (debtIds.isEmpty) return;
-    await _client.from('inbox_items').insert({
+    await _db.collection('inbox_items').add({
       'recipient_id': friendId,
       'sender_id': _userId!,
       'type': 'settlement_request',
       'payload': {'debt_ids': debtIds, 'payment': paymentInfo.toJson()},
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
     });
   }
 
   Future<void> acceptSettlementRequest(String requestId) async {
     final request = state.requests.firstWhere((item) => item.id == requestId);
-    final targetIds = request.debtIds.toSet();
+    final targetIds = request.debtIds.toSet().toList();
     final settledAt = DateTime.now().toUtc();
 
-    await _client
-        .from('debts')
-        .update({
-          'status': 'settled',
-          'updated_at': settledAt.toIso8601String(),
-        })
-        .inFilter('id', targetIds.toList());
-    await _client
-        .from('inbox_items')
-        .update({'status': 'accepted'})
-        .eq('id', requestId);
+    await _settleDebtsWithCreditScoring(targetIds, settledAt);
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'accepted',
+    }, SetOptions(merge: true));
 
     if (mounted) {
       state = state.copyWith(
@@ -330,13 +326,13 @@ class DebtController extends StateNotifier<DebtState> {
         requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
+    _ref.read(profileSettingsProvider.notifier).refresh();
   }
 
   Future<void> declineSettlementRequest(String requestId) async {
-    await _client
-        .from('inbox_items')
-        .update({'status': 'declined'})
-        .eq('id', requestId);
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'declined',
+    }, SetOptions(merge: true));
     if (mounted) {
       state = state.copyWith(
         requests: state.requests.where((item) => item.id != requestId).toList(),
@@ -344,10 +340,169 @@ class DebtController extends StateNotifier<DebtState> {
     }
   }
 
+  Future<void> _applyOverdueCreditPenalties({
+    DateTime? now,
+    Set<String>? onlyDebtIds,
+  }) async {
+    final userId = _userId;
+    if (userId == null) return;
+
+    final snapshot = await _db
+        .collection('debts')
+        .where('participants', arrayContains: userId)
+        .where('status', isEqualTo: 'active')
+        .get();
+
+    final current = now?.toUtc() ?? DateTime.now().toUtc();
+    for (final doc in snapshot.docs) {
+      if (onlyDebtIds != null && !onlyDebtIds.contains(doc.id)) continue;
+
+      final data = doc.data();
+      final deadlineValue = data['deadline'];
+      if (deadlineValue == null) continue;
+
+      final deadline = _readDate(deadlineValue).toUtc();
+      final dueAt = DateTime.utc(
+        deadline.year,
+        deadline.month,
+        deadline.day + 1,
+      );
+      if (current.isBefore(dueAt)) continue;
+
+      final borrower = _borrowerId(data);
+      final missedEventId = '${doc.id}_missed_deadline';
+      await _applyCreditScoreEvent(
+        eventId: missedEventId,
+        userId: borrower,
+        debtId: doc.id,
+        eventType: 'missed_deadline',
+        points: -5,
+        eventDate: DateTime.utc(deadline.year, deadline.month, deadline.day),
+      );
+
+      final fullOverdueDays = current.difference(dueAt).inDays;
+      for (var dayOffset = 1; dayOffset <= fullOverdueDays; dayOffset++) {
+        final eventDate = DateTime.utc(
+          deadline.year,
+          deadline.month,
+          deadline.day + dayOffset,
+        );
+        await _applyCreditScoreEvent(
+          eventId:
+              '${doc.id}_overdue_day_${eventDate.toIso8601String().split('T').first}',
+          userId: borrower,
+          debtId: doc.id,
+          eventType: 'overdue_day',
+          points: -1,
+          eventDate: eventDate,
+        );
+      }
+    }
+  }
+
+  Future<void> _settleDebtsWithCreditScoring(
+    List<String> debtIds,
+    DateTime settledAt,
+  ) async {
+    final userId = _userId;
+    if (userId == null || debtIds.isEmpty) return;
+
+    await _applyOverdueCreditPenalties(
+      now: settledAt,
+      onlyDebtIds: debtIds.toSet(),
+    );
+
+    for (final debtId in debtIds) {
+      final debtRef = _db.collection('debts').doc(debtId);
+      final snapshot = await debtRef.get();
+      if (!snapshot.exists) continue;
+
+      final data = snapshot.data()!;
+      final participants =
+          (data['participants'] as List<dynamic>? ?? const []).cast<String>();
+      if (!participants.contains(userId)) continue;
+      if ((data['status'] as String? ?? '') == 'settled') continue;
+
+      final deadlineValue = data['deadline'];
+      if (deadlineValue != null) {
+        final deadline = _readDate(deadlineValue).toUtc();
+        final dueAt = DateTime.utc(
+          deadline.year,
+          deadline.month,
+          deadline.day + 1,
+        );
+        if (settledAt.isBefore(dueAt)) {
+          await _applyCreditScoreEvent(
+            eventId: '${debtId}_on_time_settlement',
+            userId: _borrowerId(data),
+            debtId: debtId,
+            eventType: 'on_time_settlement',
+            points: 3,
+            eventDate: settledAt,
+          );
+        }
+      }
+
+      await debtRef.set({
+        'status': 'settled',
+        'settled_at': Timestamp.fromDate(settledAt),
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> _applyCreditScoreEvent({
+    required String eventId,
+    required String userId,
+    required String debtId,
+    required String eventType,
+    required int points,
+    required DateTime eventDate,
+  }) async {
+    final eventRef = _db.collection('credit_score_events').doc(eventId);
+    final userRef = _db.collection('users').doc(userId);
+
+    await _db.runTransaction((tx) async {
+      final eventSnapshot = await tx.get(eventRef);
+      if (eventSnapshot.exists) return;
+
+      final userSnapshot = await tx.get(userRef);
+      final currentScore =
+          (userSnapshot.data()?['credit_score'] as num?)?.toInt() ?? 100;
+      final nextScore = (currentScore + points).clamp(0, 100);
+
+      tx.set(eventRef, {
+        'user_id': userId,
+        'debt_id': debtId,
+        'event_type': eventType,
+        'points': points,
+        'event_date': Timestamp.fromDate(
+          DateTime.utc(eventDate.year, eventDate.month, eventDate.day),
+        ),
+        'created_at': FieldValue.serverTimestamp(),
+      });
+      tx.set(userRef, {'credit_score': nextScore}, SetOptions(merge: true));
+    });
+  }
+
+  String _borrowerId(Map<String, dynamic> debtData) {
+    final ownerId = debtData['owner_id'] as String? ?? '';
+    final counterpartId = debtData['counterpart_id'] as String? ?? '';
+    final direction = debtData['direction'] as String? ?? 'borrow';
+    return direction == 'lend' ? counterpartId : ownerId;
+  }
+
+  DateTime _readDate(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.parse(value);
+    return DateTime.now();
+  }
+
   @override
   void dispose() {
-    for (final channel in _channels) {
-      _client.removeChannel(channel);
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
     }
     super.dispose();
   }
@@ -358,7 +513,7 @@ final totalLentProvider = Provider<double>((ref) {
       .watch(debtControllerProvider)
       .debts
       .where((debt) => debt.status == DebtStatus.active && debt.isLent)
-      .fold(0, (sum, debt) => sum + debt.amount);
+      .fold(0, (total, debt) => total + debt.amount);
 });
 
 final totalBorrowedProvider = Provider<double>((ref) {
@@ -366,7 +521,7 @@ final totalBorrowedProvider = Provider<double>((ref) {
       .watch(debtControllerProvider)
       .debts
       .where((debt) => debt.status == DebtStatus.active && !debt.isLent)
-      .fold(0, (sum, debt) => sum + debt.amount);
+      .fold(0, (total, debt) => total + debt.amount);
 });
 
 final netDebtProvider = Provider<double>((ref) {
@@ -380,11 +535,11 @@ List<DebtModel> debtsForFriend(DebtState state, String friendId) {
 double lentToFriend(Iterable<DebtModel> debts) {
   return debts
       .where((debt) => debt.status == DebtStatus.active && debt.isLent)
-      .fold(0, (sum, debt) => sum + debt.amount);
+      .fold(0, (total, debt) => total + debt.amount);
 }
 
 double borrowedFromFriend(Iterable<DebtModel> debts) {
   return debts
       .where((debt) => debt.status == DebtStatus.active && !debt.isLent)
-      .fold(0, (sum, debt) => sum + debt.amount);
+      .fold(0, (total, debt) => total + debt.amount);
 }

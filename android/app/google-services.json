@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "144801441254",
+    "project_id": "moni-624c6",
+    "storage_bucket": "moni-624c6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:144801441254:android:fc0e599184c80b57a7e227",
+        "android_client_info": {
+          "package_name": "com.example.moni"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbZL22y_Vv4NhyiDrkfgB1YJt9qWYM3Mc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:144801441254:android:0fccba51e3e087bfa7e227",
+        "android_client_info": {
+          "package_name": "com.sigmadigma.moni"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbZL22y_Vv4NhyiDrkfgB1YJt9qWYM3Mc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

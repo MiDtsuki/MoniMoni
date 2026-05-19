@@ -1,11 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
-import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
@@ -115,15 +115,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _forgotPassword() async {
-    final result = await showDialog<_ForgotResult>(
+    await showDialog<void>(
       context: context,
       builder: (ctx) =>
           _ForgotPasswordDialog(prefillEmail: _emailController.text.trim()),
     );
-    if (!mounted) return;
-    if (result is _EmailOtpSent) {
-      context.push('/verify-otp', extra: result.email);
-    }
   }
 
   Future<void> _submit() async {
@@ -132,17 +128,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _loading = true);
 
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
       _invalidateAccountProviders();
       if (mounted) context.go('/logs');
-    } on AuthException catch (e) {
+    } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Could not sign in.')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -319,19 +315,9 @@ class _AuthSwitchRow extends StatelessWidget {
   }
 }
 
-// ─── Forgot password result types ───────────────────────────────────────────
-
-sealed class _ForgotResult {}
-
-class _EmailOtpSent extends _ForgotResult {
-  _EmailOtpSent(this.email);
-  final String email;
-}
-
-// ─── Forgot password dialog ───────────────────────────────────────────────────
-
 class _ForgotPasswordDialog extends StatefulWidget {
   const _ForgotPasswordDialog({required this.prefillEmail});
+
   final String prefillEmail;
 
   @override
@@ -382,8 +368,8 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            "We'll send a 6-digit code to your email.",
+          const Text(
+            "We'll send a password reset link to your email.",
             style: TextStyle(color: MoniTheme.muted, fontSize: 13),
           ),
           const SizedBox(height: 16),
@@ -421,8 +407,8 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(LucideIcons.hash, size: 16),
-                  label: const Text('Send code'),
+                      : const Icon(LucideIcons.mail, size: 16),
+                  label: const Text('Send email'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
@@ -448,13 +434,18 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     }
     setState(() => _loading = true);
     try {
-      await Supabase.instance.client.auth.signInWithOtp(email: email);
-      if (mounted) Navigator.of(context).pop(_EmailOtpSent(email));
-    } on AuthException catch (e) {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset email sent.')),
+        );
+        Navigator.of(context).pop();
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message ?? 'Could not send reset email.')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -467,8 +458,6 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     }
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 String? _validateEmail(String? value) {
   final trimmed = value?.trim() ?? '';

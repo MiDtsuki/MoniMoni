@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'settlement_payment_info.dart';
@@ -22,42 +23,42 @@ class DebtModel {
     this.note,
   });
 
-  factory DebtModel.fromJson(Map<String, dynamic> json, String currentUserId) {
-    final ownerId = json['owner_id'] as String;
+  factory DebtModel.fromMap(
+    String id,
+    Map<String, dynamic> data,
+    String currentUserId,
+  ) {
+    final ownerId = data['owner_id'] as String? ?? '';
     final isOwner = ownerId == currentUserId;
-    final dbDirection = json['direction'] as String;
+    final dbDirection = data['direction'] as String? ?? 'borrow';
 
     final DebtDirection direction;
     final String friendId;
 
     if (isOwner) {
-      friendId = json['counterpart_id'] as String;
-      // owner's 'lend' means owner lent → counterpart owes owner → owedToMe
+      friendId = data['counterpart_id'] as String? ?? '';
       direction = dbDirection == 'lend'
           ? DebtDirection.owedToMe
           : DebtDirection.iOwe;
     } else {
       friendId = ownerId;
-      // counterpart perspective: owner's 'lend' means owner lent to me → I owe
       direction = dbDirection == 'lend'
           ? DebtDirection.iOwe
           : DebtDirection.owedToMe;
     }
 
     return DebtModel(
-      id: json['id'] as String,
+      id: id,
       friendId: friendId,
-      amount: (json['amount'] as num).toDouble(),
+      amount: (data['amount'] as num?)?.toDouble() ?? 0,
       direction: direction,
-      status: _statusFromString(json['status'] as String),
-      createdAt: DateTime.parse(json['created_at'] as String),
-      deadline: json['deadline'] != null
-          ? DateTime.parse(json['deadline'] as String)
+      status: _statusFromString(data['status'] as String? ?? 'pending'),
+      createdAt: _readDate(data['created_at']),
+      deadline: data['deadline'] != null ? _readDate(data['deadline']) : null,
+      settledAt: data['settled_at'] != null
+          ? _readDate(data['settled_at'])
           : null,
-      settledAt: json['settled_at'] != null
-          ? DateTime.parse(json['settled_at'] as String)
-          : null,
-      note: json['description'] as String?,
+      note: data['description'] as String?,
     );
   }
 
@@ -96,6 +97,19 @@ class DebtModel {
       default:
         return DebtStatus.pending;
     }
+  }
+
+  static DateTime _readDate(Object? value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    if (value is String) {
+      return DateTime.parse(value);
+    }
+    return DateTime.now();
   }
 }
 

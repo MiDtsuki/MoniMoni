@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isParticipant(data) {
+      return signedIn() &&
+        data.participants is list &&
+        request.auth.uid in data.participants;
+    }
+
+    function isInboxParty(data) {
+      return signedIn() &&
+        (
+          request.auth.uid == data.recipient_id ||
+          request.auth.uid == data.sender_id
+        );
+    }
+
+    // User profiles must be readable before auth completes because signup
+    // currently checks username availability before account creation.
+    // Writes are intentionally broader than ideal because the current app still
+    // performs credit score updates client-side during debt settlement/penalty flows.
+    // Tighten this after moving score writes into Cloud Functions.
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isSelf(userId);
+      allow update: if signedIn();
+      allow delete: if false;
+
+      match /transactions/{transactionId} {
+        allow read, write: if isSelf(userId);
+      }
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if isParticipant(resource.data);
+      allow create: if isParticipant(request.resource.data);
+      allow update: if isParticipant(resource.data);
+      allow delete: if isParticipant(resource.data);
+    }
+
+    match /debts/{debtId} {
+      allow read: if isParticipant(resource.data);
+      allow create: if isParticipant(request.resource.data);
+      allow update: if isParticipant(resource.data);
+      allow delete: if isParticipant(resource.data);
+    }
+
+    match /inbox_items/{itemId} {
+      allow read: if isInboxParty(resource.data);
+      allow create: if isInboxParty(request.resource.data);
+      allow update: if isInboxParty(resource.data);
+      allow delete: if isInboxParty(resource.data);
+    }
+
+    // Also intentionally broad for the current client-side credit score flow.
+    match /credit_score_events/{eventId} {
+      allow read, write: if signedIn();
+    }
+  }
+}

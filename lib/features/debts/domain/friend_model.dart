@@ -11,12 +11,12 @@ class FriendModel {
     this.creditScore = 100,
   });
 
-  factory FriendModel.fromJson(Map<String, dynamic> json) {
+  factory FriendModel.fromMap(String id, Map<String, dynamic> data) {
     return FriendModel(
-      id: json['id'] as String,
-      name: json['display_name'] as String? ?? '',
-      username: json['username'] as String? ?? '',
-      creditScore: (json['credit_score'] as num?)?.toInt() ?? 100,
+      id: id,
+      name: data['display_name'] as String? ?? '',
+      username: data['username'] as String? ?? '',
+      creditScore: (data['credit_score'] as num?)?.toInt() ?? 100,
     );
   }
 

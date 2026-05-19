@@ -1,7 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 
 final currencySymbolProvider = Provider<String>((ref) {
@@ -18,7 +19,7 @@ final profileSettingsProvider =
       if (user == null) {
         return ProfileSettingsController.signedOut(ref);
       }
-      return ProfileSettingsController.remote(ref, user.id);
+      return ProfileSettingsController.remote(ref, user.uid);
     });
 
 class ProfileSettings {
@@ -84,12 +85,13 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
   final Ref _ref;
   final String? _userId;
 
-  SupabaseClient get _client => _ref.read(supabaseClientProvider);
+  FirebaseFirestore get _db => _ref.read(firestoreProvider);
+  FirebaseAuth get _auth => _ref.read(firebaseAuthProvider);
 
   Future<void> refresh() => _load();
 
   Future<void> _load() async {
-    final user = _client.auth.currentUser;
+    final user = _auth.currentUser;
     if (user == null) return;
 
     final fallback = _settingsFromUser(user, state.currency);
@@ -98,11 +100,13 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     }
 
     try {
-      var row = await _fetchProfileRow();
-      if (row == null) {
-        await _insertProfileRow(user, fallback);
-        row = await _fetchProfileRow();
+      var snapshot = await _fetchProfileDoc();
+      if (!snapshot.exists) {
+        await _insertProfileDoc(user, fallback);
+        snapshot = await _fetchProfileDoc();
       }
+
+      final row = snapshot.data();
       if (row == null) return;
 
       final currencyCode = row['currency'] as String? ?? 'USD';
@@ -122,47 +126,30 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>?> _fetchProfileRow() async {
-    try {
-      return await _client
-          .from('profiles')
-          .select('display_name, username, currency, credit_score')
-          .eq('id', _userId!)
-          .maybeSingle();
-    } on PostgrestException catch (error) {
-      // Older remote databases may not have credit_score until migrations run.
-      if (error.code != '42703') rethrow;
-      return await _client
-          .from('profiles')
-          .select('display_name, username, currency')
-          .eq('id', _userId!)
-          .maybeSingle();
-    }
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchProfileDoc() {
+    return _db.collection('users').doc(_userId!).get();
   }
 
-  Future<void> _insertProfileRow(User user, ProfileSettings fallback) async {
-    try {
-      await _client.from('profiles').insert({
-        'id': user.id,
-        'display_name': fallback.displayName,
-        'username': fallback.username.isEmpty ? null : fallback.username,
-        'currency': fallback.currency.code,
-      });
-    } on PostgrestException catch (error) {
-      if (error.code != '23505') rethrow;
-    }
+  Future<void> _insertProfileDoc(User user, ProfileSettings fallback) async {
+    await _db.collection('users').doc(user.uid).set({
+      'display_name': fallback.displayName,
+      'username': fallback.username,
+      'username_lower': fallback.username.toLowerCase(),
+      'currency': fallback.currency.code,
+      'credit_score': 100,
+      'email': user.email,
+      'created_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   ProfileSettings _settingsFromUser(User user, CurrencyOption currency) {
-    final metadata = user.userMetadata ?? const <String, dynamic>{};
-    final displayName = metadata['display_name'] as String?;
-    final username = metadata['username'] as String?;
+    final displayName = user.displayName;
     final emailName = user.email?.split('@').first.trim();
 
     return ProfileSettings(
       currency: currency,
       displayName: _firstNonEmpty([displayName, emailName, 'Profile']),
-      username: _firstNonEmpty([username, emailName]),
+      username: _firstNonEmpty([emailName]),
     );
   }
 
@@ -178,10 +165,9 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     state = state.copyWith(currency: currency);
     if (_userId == null) return;
     try {
-      await _client
-          .from('profiles')
-          .update({'currency': currency.code})
-          .eq('id', _userId);
+      await _db.collection('users').doc(_userId).set({
+        'currency': currency.code,
+      }, SetOptions(merge: true));
     } catch (_) {}
   }
 }
@@ -194,10 +180,10 @@ const defaultCurrency = CurrencyOption(
 
 const supportedCurrencies = [
   defaultCurrency,
-  CurrencyOption(code: 'EUR', symbol: '€', name: 'Euro'),
-  CurrencyOption(code: 'GBP', symbol: '£', name: 'British Pound'),
-  CurrencyOption(code: 'JPY', symbol: '¥', name: 'Japanese Yen'),
-  CurrencyOption(code: 'THB', symbol: '฿', name: 'Thai Baht'),
+  CurrencyOption(code: 'EUR', symbol: 'EUR', name: 'Euro'),
+  CurrencyOption(code: 'GBP', symbol: 'GBP', name: 'British Pound'),
+  CurrencyOption(code: 'JPY', symbol: 'JPY', name: 'Japanese Yen'),
+  CurrencyOption(code: 'THB', symbol: 'THB', name: 'Thai Baht'),
   CurrencyOption(code: 'MMK', symbol: 'K', name: 'Myanmar Kyat'),
-  CurrencyOption(code: 'SGD', symbol: r'S$', name: 'Singapore Dollar'),
+  CurrencyOption(code: 'SGD', symbol: 'SGD', name: 'Singapore Dollar'),
 ];

@@ -1,7 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 import '../domain/friend_model.dart';
 
@@ -15,7 +15,7 @@ final friendsControllerProvider =
       if (user == null) {
         return FriendsController.guest(ref);
       }
-      return FriendsController.remote(ref, user.id);
+      return FriendsController.remote(ref, user.uid);
     });
 
 class FriendsState {
@@ -52,7 +52,7 @@ class FriendsController extends StateNotifier<FriendsState> {
   final String? _userId;
   final Set<String> _sentRequestIds = {};
 
-  SupabaseClient get _client => _ref.read(supabaseClientProvider);
+  FirebaseFirestore get _db => _ref.read(firestoreProvider);
 
   Future<void> refresh() => _load();
 
@@ -61,65 +61,53 @@ class FriendsController extends StateNotifier<FriendsState> {
       final userId = _userId;
       if (userId == null) return;
 
-      // Load friendships
-      final friendshipRows = await _client
-          .from('friendships')
-          .select('user_id, friend_id')
-          .or('user_id.eq.$userId,friend_id.eq.$userId');
+      final friendshipRows = await _db
+          .collection('friendships')
+          .where('participants', arrayContains: userId)
+          .get();
 
       final friendIds = <String>[];
-      for (final row in (friendshipRows as List)) {
-        final uid = row['user_id'] as String;
-        final fid = row['friend_id'] as String;
-        friendIds.add(uid == userId ? fid : uid);
-      }
-
-      List<FriendModel> friends = [];
-      if (friendIds.isNotEmpty) {
-        final profileRows = await _client
-            .from('profiles')
-            .select('id, display_name, username, credit_score')
-            .inFilter('id', friendIds);
-        friends = (profileRows as List)
-            .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
-            .toList();
-      }
-
-      // Load pending incoming friend requests
-      final requestRows = await _client
-          .from('inbox_items')
-          .select('id, sender_id, created_at')
-          .eq('recipient_id', userId)
-          .eq('type', 'friend_request')
-          .eq('status', 'pending')
-          .order('created_at', ascending: false);
-
-      final senderIds = (requestRows as List)
-          .map((r) => r['sender_id'] as String)
-          .toList();
-
-      final Map<String, FriendModel> senderProfiles = {};
-      if (senderIds.isNotEmpty) {
-        final profileRows = await _client
-            .from('profiles')
-            .select('id, display_name, username, credit_score')
-            .inFilter('id', senderIds);
-        for (final r in (profileRows as List)) {
-          final m = r as Map<String, dynamic>;
-          senderProfiles[m['id'] as String] = FriendModel.fromJson(m);
+      for (final doc in friendshipRows.docs) {
+        final participants =
+            (doc.data()['participants'] as List<dynamic>? ?? const [])
+                .cast<String>();
+        for (final participant in participants) {
+          if (participant != userId) {
+            friendIds.add(participant);
+          }
         }
       }
 
+      final friends = await _loadUsersByIds(friendIds);
+
+      final requestRows = await _db
+          .collection('inbox_items')
+          .where('recipient_id', isEqualTo: userId)
+          .where('type', isEqualTo: 'friend_request')
+          .where('status', isEqualTo: 'pending')
+          .orderBy('created_at', descending: true)
+          .get();
+
+      final senderIds = requestRows.docs
+          .map((doc) => doc.data()['sender_id'] as String? ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      final senderProfiles = {
+        for (final user in await _loadUsersByIds(senderIds)) user.id: user,
+      };
+
       final requests = <FriendRequestModel>[];
-      for (final row in requestRows) {
-        final senderId = row['sender_id'] as String;
+      for (final doc in requestRows.docs) {
+        final data = doc.data();
+        final senderId = data['sender_id'] as String? ?? '';
         final sender = senderProfiles[senderId];
         if (sender != null) {
           requests.add(
             FriendRequestModel(
-              id: row['id'] as String,
+              id: doc.id,
               user: sender,
-              createdAt: DateTime.parse(row['created_at'] as String),
+              createdAt: _readDate(data['created_at']),
             ),
           );
         }
@@ -132,7 +120,7 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<List<FriendModel>> searchUsers(String username) async {
-    final query = username.trim();
+    final query = username.trim().toLowerCase();
     if (query.isEmpty) return [];
 
     try {
@@ -141,17 +129,19 @@ class FriendsController extends StateNotifier<FriendsState> {
       final friendIds = state.friends.map((f) => f.id).toSet();
       final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
 
-      final rows = await _client
-          .from('profiles')
-          .select('id, display_name, username, credit_score')
-          .ilike('username', '%$query%')
-          .neq('id', userId)
-          .limit(10);
+      final rows = await _db
+          .collection('users')
+          .orderBy('username_lower')
+          .startAt([query])
+          .endAt(['$query\uf8ff'])
+          .limit(10)
+          .get();
 
-      return (rows as List)
-          .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
+      return rows.docs
+          .map((doc) => FriendModel.fromMap(doc.id, doc.data()))
           .where(
             (user) =>
+                user.id != userId &&
                 !friendIds.contains(user.id) &&
                 !requestedIds.contains(user.id) &&
                 !_sentRequestIds.contains(user.id),
@@ -166,11 +156,13 @@ class FriendsController extends StateNotifier<FriendsState> {
     if (_sentRequestIds.contains(user.id)) return;
     _sentRequestIds.add(user.id);
     try {
-      await _client.from('inbox_items').insert({
+      await _db.collection('inbox_items').add({
         'recipient_id': user.id,
         'sender_id': _userId!,
         'type': 'friend_request',
         'payload': <String, dynamic>{},
+        'status': 'pending',
+        'created_at': FieldValue.serverTimestamp(),
       });
     } catch (_) {
       _sentRequestIds.remove(user.id);
@@ -178,15 +170,19 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<void> acceptFriendRequest(String requestId) async {
+    final userId = _userId;
+    if (userId == null) return;
     final request = state.requests.firstWhere((item) => item.id == requestId);
-    await _client
-        .from('inbox_items')
-        .update({'status': 'accepted'})
-        .eq('id', requestId);
-    await _client.from('friendships').insert({
-      'user_id': _userId!,
-      'friend_id': request.user.id,
-    });
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'accepted',
+    }, SetOptions(merge: true));
+    await _db
+        .collection('friendships')
+        .doc(_friendshipId(userId, request.user.id))
+        .set({
+          'participants': [userId, request.user.id]..sort(),
+          'created_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
     if (mounted) {
       state = state.copyWith(
         friends: [...state.friends, request.user],
@@ -196,14 +192,44 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<void> declineFriendRequest(String requestId) async {
-    await _client
-        .from('inbox_items')
-        .update({'status': 'declined'})
-        .eq('id', requestId);
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'declined',
+    }, SetOptions(merge: true));
     if (mounted) {
       state = state.copyWith(
         requests: state.requests.where((item) => item.id != requestId).toList(),
       );
     }
+  }
+
+  Future<List<FriendModel>> _loadUsersByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+
+    final uniqueIds = ids.toSet().toList();
+    final users = <FriendModel>[];
+
+    for (var i = 0; i < uniqueIds.length; i += 10) {
+      final chunk = uniqueIds.skip(i).take(10).toList();
+      final snapshot = await _db
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      users.addAll(
+        snapshot.docs.map((doc) => FriendModel.fromMap(doc.id, doc.data())),
+      );
+    }
+
+    return users;
+  }
+
+  String _friendshipId(String a, String b) {
+    final ids = [a, b]..sort();
+    return '${ids.first}_${ids.last}';
+  }
+
+  DateTime _readDate(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.now();
   }
 }

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
-import '../../../core/providers/supabase_providers.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -183,9 +183,7 @@ class _SignOutButton extends ConsumerWidget {
             if (isGuest) {
               await guestSession.exit();
             } else {
-              await Supabase.instance.client.auth.signOut(
-                scope: SignOutScope.local,
-              );
+              await FirebaseAuth.instance.signOut();
             }
           } finally {
             ref

@@ -1,11 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
-import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 import '../../profile/application/profile_settings_controller.dart';
@@ -161,51 +162,61 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     setState(() => _loading = true);
 
     try {
-      final response = await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        data: {
-          'display_name': _nameController.text.trim(),
-          'username': _usernameController.text.trim(),
-        },
-      );
+      final auth = ref.read(firebaseAuthProvider);
+      final db = ref.read(firestoreProvider);
+      final displayName = _nameController.text.trim();
+      final username = _usernameController.text.trim();
+      final email = _emailController.text.trim();
 
-      if (!mounted) return;
-
-      if (response.session != null) {
-        // Email confirmation disabled — logged in immediately
-        _invalidateAccountProviders();
-        context.go('/logs');
-      } else {
-        // Email confirmation required
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Check your email to confirm your account.'),
-            duration: Duration(seconds: 6),
-          ),
+      final usernameTaken = await db
+          .collection('users')
+          .where('username_lower', isEqualTo: username.toLowerCase())
+          .limit(1)
+          .get();
+      if (usernameTaken.docs.isNotEmpty) {
+        throw FirebaseAuthException(
+          code: 'username-already-in-use',
+          message: 'That username is already taken.',
         );
-        context.go('/login');
       }
-    } on AuthException catch (e) {
-      debugPrint('=== SIGNUP AuthException ===');
-      debugPrint('message: ${e.message}');
-      debugPrint('statusCode: ${e.statusCode}');
-      debugPrint('===========================');
+
+      final credential = await auth.createUserWithEmailAndPassword(
+        email: email,
+        password: _passwordController.text,
+      );
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-created',
+          message: 'Could not create the account.',
+        );
+      }
+
+      await user.updateDisplayName(displayName);
+      await db.collection('users').doc(user.uid).set({
+        'display_name': displayName,
+        'username': username,
+        'username_lower': username.toLowerCase(),
+        'currency': defaultCurrency.code,
+        'credit_score': 100,
+        'email': email,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      _invalidateAccountProviders();
+      if (mounted) context.go('/logs');
+    } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('[${e.statusCode}] ${e.message}'),
-          duration: const Duration(seconds: 10),
+          content: Text(e.message ?? 'Could not create the account.'),
+          duration: const Duration(seconds: 8),
         ),
       );
-    } catch (e, stack) {
-      debugPrint('=== SIGNUP Unexpected error ===');
-      debugPrint('$e');
-      debugPrint('$stack');
-      debugPrint('==============================');
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'), duration: const Duration(seconds: 10)),
+        SnackBar(content: Text('$e'), duration: const Duration(seconds: 8)),
       );
     } finally {
       if (mounted) setState(() => _loading = false);

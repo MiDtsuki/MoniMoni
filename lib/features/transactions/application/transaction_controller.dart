@@ -1,10 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../data/local/guest_store.dart';
-import '../../../core/providers/supabase_providers.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
+import '../../../data/local/guest_store.dart';
 import '../domain/transaction_model.dart';
 
 final transactionControllerProvider =
@@ -17,7 +17,7 @@ final transactionControllerProvider =
       if (user == null) {
         return TransactionController.signedOut(ref);
       }
-      return TransactionController.remote(ref, user.id);
+      return TransactionController.remote(ref, user.uid);
     });
 
 class TransactionController extends StateNotifier<List<TransactionModel>> {
@@ -44,10 +44,13 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
   final bool _isGuest;
   static const _uuid = Uuid();
 
-  SupabaseClient get _client => _ref.read(supabaseClientProvider);
+  FirebaseFirestore get _db => _ref.read(firestoreProvider);
   GuestStore get _guestStore => _ref.read(guestStoreProvider);
 
   Future<void> refresh() => _load();
+
+  CollectionReference<Map<String, dynamic>> get _transactionsRef =>
+      _db.collection('users').doc(_userId).collection('transactions');
 
   Future<void> _load() async {
     try {
@@ -57,17 +60,15 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
         if (mounted) state = rows;
         return;
       }
-      final rows = await _client
-          .from('transactions')
-          .select()
-          .eq('user_id', _userId!)
-          .isFilter('deleted_at', null)
-          .order('date', ascending: false)
-          .order('created_at', ascending: false);
+      if (_userId == null) return;
+
+      final snapshot = await _transactionsRef.orderBy('date', descending: true).get();
+      final rows = snapshot.docs
+          .map((doc) => TransactionModel.fromMap(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
       if (mounted) {
-        state = (rows as List)
-            .map((r) => TransactionModel.fromJson(r as Map<String, dynamic>))
-            .toList();
+        state = rows;
       }
     } catch (_) {}
   }
@@ -94,7 +95,10 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       if (_isGuest) {
         await _guestStore.saveTransactions(state);
       } else {
-        await _client.from('transactions').insert(tx.toJson(_userId!));
+        await _transactionsRef.doc(tx.id).set({
+          ...tx.toMap(),
+          'created_at': FieldValue.serverTimestamp(),
+        });
       }
     } catch (e) {
       if (mounted) state = state.where((item) => item.id != tx.id).toList();
@@ -112,10 +116,10 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       if (_isGuest) {
         await _guestStore.saveTransactions(state);
       } else {
-        await _client
-            .from('transactions')
-            .update(transaction.toJson(_userId!))
-            .eq('id', transaction.id);
+        await _transactionsRef.doc(transaction.id).set(
+              transaction.toMap(),
+              SetOptions(merge: true),
+            );
       }
     } catch (e) {
       if (mounted) {
@@ -135,10 +139,7 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       if (_isGuest) {
         await _guestStore.saveTransactions(state);
       } else {
-        await _client
-            .from('transactions')
-            .update({'deleted_at': DateTime.now().toIso8601String()})
-            .eq('id', id);
+        await _transactionsRef.doc(id).delete();
       }
     } catch (e) {
       if (mounted) state = [prev, ...state];
@@ -264,14 +265,14 @@ final totalIncomeProvider = Provider<double>((ref) {
   return ref
       .watch(transactionControllerProvider)
       .where((item) => item.type == TransactionType.income)
-      .fold(0, (sum, item) => sum + item.amount);
+      .fold(0, (total, item) => total + item.amount);
 });
 
 final totalExpenseProvider = Provider<double>((ref) {
   return ref
       .watch(transactionControllerProvider)
       .where((item) => item.type == TransactionType.expense)
-      .fold(0, (sum, item) => sum + item.amount);
+      .fold(0, (total, item) => total + item.amount);
 });
 
 final balanceProvider = Provider<double>((ref) {
@@ -289,14 +290,14 @@ final monthlyIncomeProvider = Provider<double>((ref) {
   return ref
       .watch(monthlyTransactionsProvider)
       .where((item) => item.type == TransactionType.income)
-      .fold(0, (sum, item) => sum + item.amount);
+      .fold(0, (total, item) => total + item.amount);
 });
 
 final monthlyExpenseProvider = Provider<double>((ref) {
   return ref
       .watch(monthlyTransactionsProvider)
       .where((item) => item.type == TransactionType.expense)
-      .fold(0, (sum, item) => sum + item.amount);
+      .fold(0, (total, item) => total + item.amount);
 });
 
 final monthlyBalanceProvider = Provider<double>((ref) {

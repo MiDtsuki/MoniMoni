@@ -1,5 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'drift_db.dart';
 
 class DbTestPage extends StatefulWidget {
@@ -10,36 +11,22 @@ class DbTestPage extends StatefulWidget {
 }
 
 class _DbTestPageState extends State<DbTestPage> {
-  String _supabaseStatus = 'Not tested';
+  String _firebaseStatus = 'Not tested';
   String _driftStatus = 'Not tested';
   bool _loading = false;
 
   Future<void> _runTests() async {
     setState(() => _loading = true);
 
-    // --- Supabase test ---
     try {
-      final client = Supabase.instance.client;
-      // A simple ping: list tables from the public schema.
-      // Will return [] if schema is empty, or throw if URL/key is wrong.
-      await client.from('profiles').select('id').limit(1);
-      setState(() => _supabaseStatus = 'Connected (profiles table reachable)');
-    } on PostgrestException catch (e) {
-      // 42P01 = table does not exist — connection is fine, just no schema yet
-      if (e.code == '42P01') {
-        setState(() =>
-            _supabaseStatus = 'Connected (run the schema SQL in Supabase dashboard)');
-      } else {
-        setState(() => _supabaseStatus = 'Error: ${e.message}');
-      }
+      await FirebaseFirestore.instance.collection('users').limit(1).get();
+      setState(() => _firebaseStatus = 'Connected (users collection reachable)');
     } catch (e) {
-      setState(() => _supabaseStatus = 'Error: $e');
+      setState(() => _firebaseStatus = 'Error: $e');
     }
 
-    // --- Drift test ---
     try {
       final db = AppDatabase();
-      // schemaVersion=1 means Drift opened/created the SQLite file successfully
       final version = db.schemaVersion;
       await db.close();
       setState(() => _driftStatus = 'OK (schema v$version, SQLite file created)');
@@ -59,7 +46,7 @@ class _DbTestPageState extends State<DbTestPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _StatusRow(label: 'Supabase', value: _supabaseStatus),
+            _StatusRow(label: 'Firebase', value: _firebaseStatus),
             const SizedBox(height: 16),
             _StatusRow(label: 'Drift (SQLite)', value: _driftStatus),
             const SizedBox(height: 32),
