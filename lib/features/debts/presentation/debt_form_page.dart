@@ -251,37 +251,58 @@ class _CreditBlockedBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFCA5A5)),
-            ),
-            child: Row(
-              children: [
-                const Icon(LucideIcons.shieldAlert,
-                    color: Color(0xFFEF4444), size: 22),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Credit score too low',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFB91C1C)),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Your score is $score/100. You need at least $_kMinCreditScore to lend or borrow.',
-                        style: const TextStyle(
-                            fontSize: 13, color: Color(0xFF991B1B)),
-                      ),
-                    ],
-                  ),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE3EAE5)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.07),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
               ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(width: 5, color: const Color(0xFFEF4444)),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    child: Icon(LucideIcons.shieldAlert,
+                        color: Color(0xFFEF4444), size: 22),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 13, 14, 13),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Credit score too low',
+                            style: TextStyle(
+                              color: Color(0xFFEF4444),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Your score is $score/100. You need at least $_kMinCreditScore to lend or borrow.',
+                            style: const TextStyle(
+                              color: Color(0xFF6D7972),
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),

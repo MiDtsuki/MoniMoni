@@ -537,35 +537,67 @@ class _CreditScoreBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isBlocked = blocked;
-    final bg = isBlocked ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB);
-    final border =
-        isBlocked ? const Color(0xFFFCA5A5) : const Color(0xFFFCD34D);
-    final icon = isBlocked ? LucideIcons.shieldAlert : LucideIcons.triangleAlert;
-    final iconColor =
-        isBlocked ? const Color(0xFFEF4444) : const Color(0xFFD97706);
-    final textColor =
-        isBlocked ? const Color(0xFF991B1B) : const Color(0xFF92400E);
-    final message = isBlocked
+    final accentColor = blocked
+        ? const Color(0xFFEF4444)
+        : const Color(0xFFD97706);
+    final icon = blocked ? LucideIcons.shieldAlert : LucideIcons.triangleAlert;
+    final title = blocked ? 'Score too low' : 'Score warning';
+    final message = blocked
         ? 'Score $score/100 — too low to add debts. Settle overdue debts to recover.'
         : 'Score $score/100 — settle debts on time to avoid being blocked.';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(message,
-                style: TextStyle(fontSize: 13, color: textColor)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE3EAE5)),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
         ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 5, color: accentColor),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              child: Icon(icon, color: accentColor, size: 22),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 13, 14, 13),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: accentColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        color: Color(0xFF6D7972),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
