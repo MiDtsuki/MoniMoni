@@ -220,10 +220,16 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final friendId = _friendId;
+    if (friendId == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Select a friend first')));
+      return;
+    }
     setState(() => _saving = true);
     try {
       await ref.read(debtControllerProvider.notifier).createDebtRequest(
-            friendId: _friendId!,
+            friendId: friendId,
             amount: double.parse(_amountController.text),
             direction: _direction,
             createdAt: _createdAt,

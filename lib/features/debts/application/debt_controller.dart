@@ -109,15 +109,17 @@ class DebtController extends StateNotifier<DebtState> {
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final debtsById = {for (final d in debts) d.id: d};
 
+      // Single-field query avoids composite index requirements. Status and type
+      // filtering is done in Dart below.
       final inboxSnapshot = await _db
           .collection('inbox_items')
           .where('recipient_id', isEqualTo: userId)
-          .where('status', isEqualTo: 'pending')
           .get();
 
       final requests = <DebtRequestModel>[];
       for (final doc in inboxSnapshot.docs) {
         final data = doc.data();
+        if ((data['status'] as String?) != 'pending') continue;
         final type = data['type'] as String? ?? '';
         if (type != 'debt_request' &&
             type != 'settlement_request' &&
@@ -213,7 +215,7 @@ class DebtController extends StateNotifier<DebtState> {
     String? note,
   }) async {
     final userId = _userId;
-    if (userId == null) return;
+    if (userId == null) throw Exception('Not signed in');
     final dbDirection = direction == DebtDirection.owedToMe ? 'lend' : 'borrow';
     final debtRef = _db.collection('debts').doc();
     final inboxRef = _db.collection('inbox_items').doc();
