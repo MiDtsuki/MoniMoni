@@ -24,8 +24,11 @@ class InboxPage extends ConsumerWidget {
     final friendsState = ref.watch(friendsControllerProvider);
     final debtState = ref.watch(debtControllerProvider);
     final friendRequests = friendsState.pendingRequests;
+    final acceptedNotifications = friendsState.acceptedNotifications;
     final debtRequests = debtState.pendingRequests;
-    final hasRequests = friendRequests.isNotEmpty || debtRequests.isNotEmpty;
+    final hasRequests = friendRequests.isNotEmpty ||
+        acceptedNotifications.isNotEmpty ||
+        debtRequests.isNotEmpty;
 
     return Scaffold(
       body: AppPage(
@@ -44,6 +47,10 @@ class InboxPage extends ConsumerWidget {
         child: hasRequests
             ? Column(
                 children: [
+                  for (final notification in acceptedNotifications) ...[
+                    _FriendAcceptedCard(notification: notification),
+                    const SizedBox(height: 12),
+                  ],
                   for (final request in friendRequests) ...[
                     _FriendRequestCard(request: request),
                     const SizedBox(height: 12),
@@ -60,6 +67,78 @@ class InboxPage extends ConsumerWidget {
                     'Friend, debt, and settlement requests will appear here.',
                 icon: LucideIcons.bell,
               ),
+      ),
+    );
+  }
+}
+
+class _FriendAcceptedCard extends ConsumerStatefulWidget {
+  const _FriendAcceptedCard({required this.notification});
+
+  final FriendRequestModel notification;
+
+  @override
+  ConsumerState<_FriendAcceptedCard> createState() =>
+      _FriendAcceptedCardState();
+}
+
+class _FriendAcceptedCardState extends ConsumerState<_FriendAcceptedCard> {
+  bool _loading = false;
+
+  Future<void> _dismiss() async {
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(friendsControllerProvider.notifier)
+          .dismissAcceptedNotification(widget.notification.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MoniCard(
+      child: Row(
+        children: [
+          const CircleAvatar(
+            backgroundColor: MoniTheme.softGreen,
+            child: Icon(
+              LucideIcons.userRoundCheck,
+              color: MoniTheme.primaryGreen,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${widget.notification.user.name} accepted your friend request',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 2),
+                Text('@${widget.notification.user.username}'),
+              ],
+            ),
+          ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            TextButton(onPressed: _dismiss, child: const Text('Dismiss')),
+        ],
       ),
     );
   }

@@ -45,7 +45,11 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
     final creditScore = ref.watch(profileSettingsProvider).creditScore;
 
     if (friends.isNotEmpty && _friendId == null) {
-      _friendId = friends.first.id;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) {
+          if (mounted) setState(() => _friendId = friends.first.id);
+        },
+      );
     }
 
     return Scaffold(
@@ -89,7 +93,7 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
                           ),
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
-                            initialValue: _friendId,
+                            value: _friendId, // ignore: deprecated_member_use
                             items: [
                               for (final friend in friends)
                                 DropdownMenuItem(

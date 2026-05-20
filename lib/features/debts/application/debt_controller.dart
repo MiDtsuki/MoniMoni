@@ -10,17 +10,19 @@ import '../../../features/profile/application/profile_settings_controller.dart';
 import '../domain/debt_model.dart';
 import '../domain/settlement_payment_info.dart';
 
+// Watch user?.uid (a String) instead of the full User object so the controller
+// only rebuilds when the logged-in account actually changes.
 final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
   (ref) {
     final isGuest = ref.watch(isGuestModeProvider);
     if (isGuest) {
       return DebtController.guest(ref);
     }
-    final user = ref.watch(currentUserProvider);
-    if (user == null) {
+    final uid = ref.watch(currentUserProvider.select((u) => u?.uid));
+    if (uid == null) {
       return DebtController.guest(ref);
     }
-    return DebtController.remote(ref, user.uid);
+    return DebtController.remote(ref, uid);
   },
 );
 
@@ -203,10 +205,10 @@ class DebtController extends StateNotifier<DebtState> {
       'updated_at': FieldValue.serverTimestamp(),
     };
 
-    try {
-      await debtRef.set(debtData);
-      final debt = DebtModel.fromMap(debtRef.id, debtData, userId);
+    await debtRef.set(debtData);
+    final debt = DebtModel.fromMap(debtRef.id, debtData, userId);
 
+    try {
       await _db.collection('inbox_items').add({
         'recipient_id': friendId,
         'sender_id': userId,
@@ -215,17 +217,20 @@ class DebtController extends StateNotifier<DebtState> {
         'status': 'pending',
         'created_at': FieldValue.serverTimestamp(),
       });
-
-      if (mounted) {
-        state = state.copyWith(debts: [debt, ...state.debts]);
-      }
     } catch (e) {
+      await debtRef.delete().catchError((_) {});
       rethrow;
+    }
+
+    if (mounted) {
+      state = state.copyWith(debts: [debt, ...state.debts]);
     }
   }
 
   Future<void> acceptDebtRequest(String requestId) async {
-    final request = state.requests.firstWhere((item) => item.id == requestId);
+    final request =
+        state.requests.where((item) => item.id == requestId).firstOrNull;
+    if (request == null) return;
     final debt = request.debt;
     if (debt == null) return;
 
@@ -249,8 +254,9 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> declineDebtRequest(String requestId) async {
-    final request = state.requests.firstWhere((item) => item.id == requestId);
-    final debt = request.debt;
+    final request =
+        state.requests.where((item) => item.id == requestId).firstOrNull;
+    final debt = request?.debt;
 
     await _db.collection('inbox_items').doc(requestId).set({
       'status': 'declined',
@@ -272,7 +278,9 @@ class DebtController extends StateNotifier<DebtState> {
     String debtId, {
     SettlementPaymentInfo paymentInfo = const SettlementPaymentInfo.cash(),
   }) async {
-    final debt = state.debts.firstWhere((item) => item.id == debtId);
+    final debt =
+        state.debts.where((item) => item.id == debtId).firstOrNull;
+    if (debt == null) return;
     await _db.collection('inbox_items').add({
       'recipient_id': debt.friendId,
       'sender_id': _userId!,
@@ -306,7 +314,9 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> acceptSettlementRequest(String requestId) async {
-    final request = state.requests.firstWhere((item) => item.id == requestId);
+    final request =
+        state.requests.where((item) => item.id == requestId).firstOrNull;
+    if (request == null) return;
     final targetIds = request.debtIds.toSet().toList();
     final settledAt = DateTime.now().toUtc();
 

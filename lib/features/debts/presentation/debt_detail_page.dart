@@ -51,9 +51,16 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
   }
 
   Future<void> _settleAll(String friendId, double amount) async {
+    final friendName = ref
+            .read(friendsControllerProvider)
+            .friends
+            .where((f) => f.id == friendId)
+            .firstOrNull
+            ?.name ??
+        friendId;
     final paymentInfo = await _choosePaymentInfo(
       amount: amount,
-      remark: 'Settle all debts with $friendId',
+      remark: 'Settle all debts with $friendName',
     );
     if (paymentInfo == null) return;
 
@@ -118,7 +125,16 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
     final friend = ref
         .watch(friendsControllerProvider)
         .friends
-        .firstWhere((item) => item.id == widget.friendId);
+        .where((item) => item.id == widget.friendId)
+        .firstOrNull;
+
+    if (friend == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/debts');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final debtState = ref.watch(debtControllerProvider);
     final debts = debtsForFriend(debtState, widget.friendId);
     final lent = lentToFriend(debts);

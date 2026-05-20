@@ -40,17 +40,17 @@ service cloud.firestore {
     }
 
     match /friendships/{friendshipId} {
-      allow read: if isParticipant(resource.data);
-      allow create: if isParticipant(request.resource.data);
-      allow update: if isParticipant(resource.data);
-      allow delete: if isParticipant(resource.data);
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.participants;
+      allow update: if signedIn() && request.auth.uid in resource.data.participants;
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
     }
 
     match /debts/{debtId} {
-      allow read: if isParticipant(resource.data);
-      allow create: if isParticipant(request.resource.data);
-      allow update: if isParticipant(resource.data);
-      allow delete: if isParticipant(resource.data);
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.participants;
+      allow update: if signedIn() && request.auth.uid in resource.data.participants;
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
     }
 
     match /inbox_items/{itemId} {
