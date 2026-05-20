@@ -9,7 +9,6 @@ import '../../profile/application/profile_settings_controller.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
-import '../../credit_score/presentation/credit_score_card.dart';
 import '../application/debt_controller.dart';
 import '../application/friends_controller.dart';
 import '../application/slip_verification_service.dart';
@@ -164,8 +163,6 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CreditScoreCard(score: friend.creditScore, compact: true),
-            const SizedBox(height: 14),
             LayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.maxWidth > 760

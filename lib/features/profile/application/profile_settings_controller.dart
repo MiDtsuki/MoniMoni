@@ -2,8 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/user_records.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
+import '../../credit_score/domain/credit_score_calculator.dart';
 
 final currencySymbolProvider = Provider<String>((ref) {
   return ref.watch(profileSettingsProvider).currency.symbol;
@@ -100,16 +102,45 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     }
 
     try {
-      var snapshot = await _fetchProfileDoc();
-      if (!snapshot.exists) {
-        await _insertProfileDoc(user, fallback);
-        snapshot = await _fetchProfileDoc();
-      }
+      final userSnapshot = await _fetchUserDoc();
+      final legacyUserData = userSnapshot.data();
+      final legacyDisplayName = legacyUserData?['display_name'] as String?;
+      final legacyFullName = legacyUserData?['full_name'] as String?;
+      final legacyUsername = legacyUserData?['username'] as String?;
+      final legacyCurrency = legacyUserData?['currency'] as String?;
+      final bootstrapDisplayName = _firstNonEmpty([
+        legacyDisplayName,
+        fallback.displayName,
+      ]);
+      final bootstrapFullName = _firstNonEmpty([
+        legacyFullName,
+        legacyDisplayName,
+        fallback.displayName,
+      ]);
+      final bootstrapUsername = suggestUsername(
+        _firstNonEmpty([legacyUsername, fallback.username]),
+        fallback: user.uid.substring(0, 8),
+      );
 
-      final row = snapshot.data();
-      if (row == null) return;
+      await ensureAccountRecords(
+        db: _db,
+        user: user,
+        displayName: bootstrapDisplayName,
+        fullName: bootstrapFullName,
+        username: bootstrapUsername,
+        email: user.email ?? '',
+        currencyCode: legacyCurrency ?? fallback.currency.code,
+      );
 
-      final currencyCode = row['currency'] as String? ?? 'USD';
+      final refreshedUserSnapshot = await _fetchUserDoc();
+      final profileSnapshot = await _fetchProfileDoc();
+      final creditEventSnapshot = await _fetchCreditScoreEvents();
+      final privateRow = refreshedUserSnapshot.data();
+      final profileRow = profileSnapshot.data();
+      if (privateRow == null || profileRow == null) return;
+      final creditScore = _scoreFromEvents(creditEventSnapshot.docs);
+
+      final currencyCode = privateRow['currency'] as String? ?? 'USD';
       final currency = supportedCurrencies.firstWhere(
         (c) => c.code == currencyCode,
         orElse: () => defaultCurrency,
@@ -118,28 +149,37 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
       if (mounted) {
         state = ProfileSettings(
           currency: currency,
-          displayName: row['display_name'] as String? ?? '',
-          username: row['username'] as String? ?? '',
-          creditScore: (row['credit_score'] as num?)?.toInt() ?? 100,
+          displayName: profileRow['display_name'] as String? ?? '',
+          username: profileRow['username'] as String? ?? '',
+          creditScore: creditScore,
         );
       }
     } catch (_) {}
   }
 
-  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchProfileDoc() {
-    return _db.collection('users').doc(_userId!).get();
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchUserDoc() {
+    return _db.collection(usersCollection).doc(_userId!).get();
   }
 
-  Future<void> _insertProfileDoc(User user, ProfileSettings fallback) async {
-    await _db.collection('users').doc(user.uid).set({
-      'display_name': fallback.displayName,
-      'username': fallback.username,
-      'username_lower': fallback.username.toLowerCase(),
-      'currency': fallback.currency.code,
-      'credit_score': 100,
-      'email': user.email,
-      'created_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchProfileDoc() {
+    return _db.collection(userProfilesCollection).doc(_userId!).get();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _fetchCreditScoreEvents() {
+    return _db
+        .collection(creditScoreEventsCollection)
+        .where('user_id', isEqualTo: _userId!)
+        .get();
+  }
+
+  int _scoreFromEvents(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final totalDelta = docs.fold<int>(0, (total, doc) {
+      return total + ((doc.data()['points'] as num?)?.toInt() ?? 0);
+    });
+    return CreditScoreCalculator.applyDelta(
+      CreditScoreCalculator.defaultScore,
+      totalDelta,
+    );
   }
 
   ProfileSettings _settingsFromUser(User user, CurrencyOption currency) {
@@ -149,7 +189,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     return ProfileSettings(
       currency: currency,
       displayName: _firstNonEmpty([displayName, emailName, 'Profile']),
-      username: _firstNonEmpty([emailName]),
+      username: suggestUsername(_firstNonEmpty([emailName]), fallback: 'profile'),
     );
   }
 
@@ -165,7 +205,7 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     state = state.copyWith(currency: currency);
     if (_userId == null) return;
     try {
-      await _db.collection('users').doc(_userId).set({
+      await _db.collection(usersCollection).doc(_userId).set({
         'currency': currency.code,
       }, SetOptions(merge: true));
     } catch (_) {}

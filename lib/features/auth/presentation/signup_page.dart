@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/firebase/user_records.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
@@ -22,7 +22,8 @@ class SignupPage extends ConsumerStatefulWidget {
 
 class _SignupPageState extends ConsumerState<SignupPage> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
+  final _displayNameController = TextEditingController();
+  final _fullNameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -32,7 +33,8 @@ class _SignupPageState extends ConsumerState<SignupPage> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _displayNameController.dispose();
+    _fullNameController.dispose();
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -51,7 +53,23 @@ class _SignupPageState extends ConsumerState<SignupPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextFormField(
-              controller: _nameController,
+              controller: _displayNameController,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.nickname],
+              decoration: const InputDecoration(
+                labelText: 'Display name',
+                prefixIcon: Icon(LucideIcons.userRound),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Enter your display name';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _fullNameController,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.name],
               decoration: const InputDecoration(
@@ -60,7 +78,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return 'Enter your name';
+                  return 'Enter your full name';
                 }
                 return null;
               },
@@ -76,8 +94,8 @@ class _SignupPageState extends ConsumerState<SignupPage> {
               validator: (value) {
                 final username = value?.trim() ?? '';
                 if (username.isEmpty) return 'Choose a username';
-                if (username.length < 3) {
-                  return 'Username must be at least 3 characters';
+                if (!isValidUsername(username)) {
+                  return 'Use 3-20 lowercase letters, numbers, or underscores';
                 }
                 return null;
               },
@@ -164,21 +182,10 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     try {
       final auth = ref.read(firebaseAuthProvider);
       final db = ref.read(firestoreProvider);
-      final displayName = _nameController.text.trim();
+      final displayName = _displayNameController.text.trim();
+      final fullName = _fullNameController.text.trim();
       final username = _usernameController.text.trim();
       final email = _emailController.text.trim();
-
-      final usernameTaken = await db
-          .collection('users')
-          .where('username_lower', isEqualTo: username.toLowerCase())
-          .limit(1)
-          .get();
-      if (usernameTaken.docs.isNotEmpty) {
-        throw FirebaseAuthException(
-          code: 'username-already-in-use',
-          message: 'That username is already taken.',
-        );
-      }
 
       final credential = await auth.createUserWithEmailAndPassword(
         email: email,
@@ -193,18 +200,36 @@ class _SignupPageState extends ConsumerState<SignupPage> {
       }
 
       await user.updateDisplayName(displayName);
-      await db.collection('users').doc(user.uid).set({
-        'display_name': displayName,
-        'username': username,
-        'username_lower': username.toLowerCase(),
-        'currency': defaultCurrency.code,
-        'credit_score': 100,
-        'email': email,
-        'created_at': FieldValue.serverTimestamp(),
-      });
+      await createAccountRecords(
+        db: db,
+        user: user,
+        displayName: displayName,
+        fullName: fullName,
+        username: username,
+        email: email,
+        currencyCode: defaultCurrency.code,
+      );
 
       _invalidateAccountProviders();
       if (mounted) context.go('/logs');
+    } on UsernameTakenException {
+      await ref.read(firebaseAuthProvider).currentUser?.delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That username is already taken.'),
+          duration: Duration(seconds: 8),
+        ),
+      );
+    } on UsernameFormatException catch (e) {
+      await ref.read(firebaseAuthProvider).currentUser?.delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          duration: const Duration(seconds: 8),
+        ),
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

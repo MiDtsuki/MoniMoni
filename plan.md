@@ -16,7 +16,7 @@ Still required before final deployment:
 - replace placeholder `lib/firebase_options.dart` with generated FlutterFire config
 - configure platform Firebase files through `flutterfire configure`
 - add Firestore Security Rules
-- move score-sensitive writes into Cloud Functions
+- deploy Cloud Functions for score-sensitive writes
 - verify Firestore indexes prompted by real queries
 
 ## Manual Tasks For You
@@ -40,14 +40,15 @@ firebase deploy --only firestore:rules
 5. Initialize and deploy Cloud Functions when the score logic is moved server-side:
 
 ```bash
-firebase init functions
+cd functions
+npm install
 firebase deploy --only functions
 ```
 
 ## Remaining Implementation Phases
 
-1. Add Firestore rules that protect user data and prevent direct score tampering.
-2. Move overdue-penalty and settlement scoring into Cloud Functions.
+1. Deploy Firestore rules that protect user data and prevent direct score tampering.
+2. Deploy overdue-penalty and settlement scoring Cloud Functions.
 3. Swap the placeholder Firebase options file for generated config.
 4. Run end-to-end testing on signup, login, transactions, friends, debts, inbox, and score updates.
 

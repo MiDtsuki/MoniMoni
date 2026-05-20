@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase/user_records.dart';
 import 'drift_db.dart';
 
 class DbTestPage extends StatefulWidget {
@@ -19,8 +20,11 @@ class _DbTestPageState extends State<DbTestPage> {
     setState(() => _loading = true);
 
     try {
-      await FirebaseFirestore.instance.collection('users').limit(1).get();
-      setState(() => _firebaseStatus = 'Connected (users collection reachable)');
+      await FirebaseFirestore.instance
+          .collection(userProfilesCollection)
+          .limit(1)
+          .get();
+      setState(() => _firebaseStatus = 'Connected (user_profiles reachable)');
     } catch (e) {
       setState(() => _firebaseStatus = 'Error: $e');
     }

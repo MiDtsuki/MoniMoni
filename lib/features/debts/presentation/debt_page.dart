@@ -118,7 +118,7 @@ class DebtPage extends ConsumerWidget {
             EmptyState(
               title: 'No friends yet',
               message:
-                  'Search by username and send a friend request to start tracking shared money.',
+                  'Search by display name and send a friend request to start tracking shared money.',
               icon: LucideIcons.userRoundPlus,
               action: OutlinedButton.icon(
                 onPressed: () => showDialog<void>(
@@ -642,7 +642,7 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
               controller: _controller,
               autofocus: true,
               decoration: const InputDecoration(
-                labelText: 'Search username',
+                labelText: 'Search display name',
                 prefixIcon: Icon(LucideIcons.search),
               ),
               onChanged: _search,
@@ -651,7 +651,7 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
             if (_controller.text.isNotEmpty && _results.isEmpty)
               const EmptyState(
                 title: 'No users found',
-                message: 'Try searching by username.',
+                message: 'Try searching by display name.',
                 icon: LucideIcons.search,
               )
             else

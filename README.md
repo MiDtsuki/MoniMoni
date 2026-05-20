@@ -48,6 +48,8 @@ This repo currently includes a placeholder [lib/firebase_options.dart](lib/fireb
 
 The current app code expects these collections:
 - `users`
+- `user_profiles`
+- `username_claims`
 - `friendships`
 - `debts`
 - `inbox_items`
@@ -86,7 +88,19 @@ flutter run -d chrome
 
 ## Credit Score Note
 
-The app still contains client-driven credit score update logic during debt settlement and overdue handling. For a production-safe deployment, move those writes into Firebase Cloud Functions and lock down Firestore rules so normal clients cannot alter score-sensitive documents directly.
+For production hardening, move credit score writes into Firebase Cloud Functions.
+
+For this repo's current demo flow, credit score events can still be created by the Flutter client and are derived from `credit_score_events` so the feature works without deploying Functions on Blaze.
+
+## Legacy Data Migration
+
+If you already have user documents from the older mixed public/private schema, migrate them before deploying the new rules:
+
+```bash
+cd functions
+npm install
+node scripts/migrate-user-profiles.js
+```
 
 ## Validation Commands
 

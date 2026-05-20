@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/user_records.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 import '../../../features/profile/application/profile_settings_controller.dart';
@@ -50,6 +51,7 @@ class DebtController extends StateNotifier<DebtState> {
     : _isGuest = false,
       super(const DebtState(debts: [], requests: [])) {
     _load();
+    _syncCreditScores();
     _subscribeToRemoteChanges();
   }
 
@@ -63,10 +65,14 @@ class DebtController extends StateNotifier<DebtState> {
   final bool _isGuest;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   int _loadGeneration = 0;
+  Future<void> _creditScoreSyncQueue = Future.value();
 
   FirebaseFirestore get _db => _ref.read(firestoreProvider);
 
-  Future<void> refresh() => _load();
+  Future<void> refresh() async {
+    await _syncCreditScores();
+    await _load();
+  }
 
   void _subscribeToRemoteChanges() {
     if (_isGuest || _userId == null) return;
@@ -88,11 +94,6 @@ class DebtController extends StateNotifier<DebtState> {
 
   Future<void> _load() async {
     final gen = ++_loadGeneration;
-
-    try {
-      await _applyOverdueCreditPenalties();
-      _ref.read(profileSettingsProvider.notifier).refresh();
-    } catch (_) {}
 
     try {
       final userId = _userId;
@@ -389,29 +390,33 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> acceptSettlementRequest(String requestId) async {
-    final request =
-        state.requests.where((item) => item.id == requestId).firstOrNull;
-    if (request == null) return;
-    final targetIds = request.debtIds.toSet().toList();
-    final settledAt = DateTime.now().toUtc();
+    await _retryUnavailable(() async {
+      final request =
+          state.requests.where((item) => item.id == requestId).firstOrNull;
+      if (request == null) return;
+      final targetIds = request.debtIds.toSet().toList();
+      final settledAt = DateTime.now().toUtc();
 
-    await _settleDebtsWithCreditScoring(targetIds, settledAt);
-    await _db.collection('inbox_items').doc(requestId).set({
-      'status': 'accepted',
-    }, SetOptions(merge: true));
-
-    if (mounted) {
-      state = state.copyWith(
-        debts: [
-          for (final d in state.debts)
-            targetIds.contains(d.id)
-                ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
-                : d,
-        ],
-        requests: state.requests.where((item) => item.id != requestId).toList(),
+      await _runQueuedCreditScoreSync(
+        () => _settleDebtsWithCreditScoring(targetIds, settledAt),
       );
-    }
-    _ref.read(profileSettingsProvider.notifier).refresh();
+      await _db.collection('inbox_items').doc(requestId).set({
+        'status': 'accepted',
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        state = state.copyWith(
+          debts: [
+            for (final d in state.debts)
+              targetIds.contains(d.id)
+                  ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
+                  : d,
+          ],
+          requests: state.requests.where((item) => item.id != requestId).toList(),
+        );
+      }
+      _ref.read(profileSettingsProvider.notifier).refresh();
+    });
   }
 
   Future<void> declineSettlementRequest(String requestId) async {
@@ -497,6 +502,7 @@ class DebtController extends StateNotifier<DebtState> {
       onlyDebtIds: debtIds.toSet(),
     );
 
+    final batch = _db.batch();
     for (final debtId in debtIds) {
       final debtRef = _db.collection('debts').doc(debtId);
       final snapshot = await debtRef.get();
@@ -528,12 +534,13 @@ class DebtController extends StateNotifier<DebtState> {
         }
       }
 
-      await debtRef.set({
+      batch.set(debtRef, {
         'status': 'settled',
         'settled_at': Timestamp.fromDate(settledAt),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
+    await batch.commit();
   }
 
   Future<void> _applyCreditScoreEvent({
@@ -544,30 +551,50 @@ class DebtController extends StateNotifier<DebtState> {
     required int points,
     required DateTime eventDate,
   }) async {
-    final eventRef = _db.collection('credit_score_events').doc(eventId);
-    final userRef = _db.collection('users').doc(userId);
+    final eventRef = _db.collection(creditScoreEventsCollection).doc(eventId);
+    final snapshot = await eventRef.get();
+    if (snapshot.exists) return;
 
-    await _db.runTransaction((tx) async {
-      final eventSnapshot = await tx.get(eventRef);
-      if (eventSnapshot.exists) return;
-
-      final userSnapshot = await tx.get(userRef);
-      final currentScore =
-          (userSnapshot.data()?['credit_score'] as num?)?.toInt() ?? 100;
-      final nextScore = (currentScore + points).clamp(0, 100);
-
-      tx.set(eventRef, {
-        'user_id': userId,
-        'debt_id': debtId,
-        'event_type': eventType,
-        'points': points,
-        'event_date': Timestamp.fromDate(
-          DateTime.utc(eventDate.year, eventDate.month, eventDate.day),
-        ),
-        'created_at': FieldValue.serverTimestamp(),
-      });
-      tx.set(userRef, {'credit_score': nextScore}, SetOptions(merge: true));
+    await eventRef.set({
+      'user_id': userId,
+      'debt_id': debtId,
+      'event_type': eventType,
+      'points': points,
+      'event_date': Timestamp.fromDate(
+        DateTime.utc(eventDate.year, eventDate.month, eventDate.day),
+      ),
+      'created_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> _syncCreditScores() {
+    return _runQueuedCreditScoreSync(() async {
+      await _applyOverdueCreditPenalties();
+      _ref.read(profileSettingsProvider.notifier).refresh();
+    });
+  }
+
+  Future<void> _runQueuedCreditScoreSync(Future<void> Function() task) {
+    _creditScoreSyncQueue = _creditScoreSyncQueue.catchError((_) {}).then((_) {
+      return _retryUnavailable(task);
+    });
+    return _creditScoreSyncQueue;
+  }
+
+  Future<T> _retryUnavailable<T>(
+    Future<T> Function() action, {
+    int maxAttempts = 3,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await action();
+      } on FirebaseException catch (e) {
+        attempt += 1;
+        if (e.code != 'unavailable' || attempt >= maxAttempts) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 300 * attempt));
+      }
+    }
   }
 
   String _borrowerId(Map<String, dynamic> debtData) {

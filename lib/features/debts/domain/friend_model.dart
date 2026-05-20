@@ -8,7 +8,6 @@ class FriendModel {
     required this.id,
     required this.name,
     required this.username,
-    this.creditScore = 100,
   });
 
   factory FriendModel.fromMap(String id, Map<String, dynamic> data) {
@@ -16,14 +15,12 @@ class FriendModel {
       id: id,
       name: data['display_name'] as String? ?? '',
       username: data['username'] as String? ?? '',
-      creditScore: (data['credit_score'] as num?)?.toInt() ?? 100,
     );
   }
 
   final String id;
   final String name;
   final String username;
-  final int creditScore;
 }
 
 @immutable

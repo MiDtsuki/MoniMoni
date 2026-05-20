@@ -92,25 +92,20 @@ void main() {
   });
 
   group('credit score models', () {
-    test('profile and friend models default to 100', () {
+    test('profile settings default to 100', () {
       const settings = ProfileSettings(currency: defaultCurrency);
-      final friend = FriendModel.fromMap('friend-1', {
-        'display_name': 'Mia',
-        'username': 'mia',
-      });
 
       expect(settings.creditScore, 100);
-      expect(friend.creditScore, 100);
     });
 
-    test('friend model reads credit score from profile json', () {
+    test('friend model reads public profile json', () {
       final friend = FriendModel.fromMap('friend-1', {
         'display_name': 'Mia',
         'username': 'mia',
-        'credit_score': 72,
       });
 
-      expect(friend.creditScore, 72);
+      expect(friend.name, 'Mia');
+      expect(friend.username, 'mia');
     });
   });
 

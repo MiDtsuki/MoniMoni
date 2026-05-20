@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/user_records.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../../core/providers/session_providers.dart';
 import '../domain/friend_model.dart';
@@ -297,8 +298,8 @@ class FriendsController extends StateNotifier<FriendsState> {
     return requests;
   }
 
-  Future<List<FriendModel>> searchUsers(String username) async {
-    final query = username.trim().toLowerCase();
+  Future<List<FriendModel>> searchUsers(String displayName) async {
+    final query = displayName.trim().toLowerCase();
     if (query.isEmpty) return [];
 
     try {
@@ -308,10 +309,10 @@ class FriendsController extends StateNotifier<FriendsState> {
       final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
 
       final rows = await _db
-          .collection('users')
-          .orderBy('username_lower')
+          .collection(userProfilesCollection)
+          .orderBy('display_name_lower')
           .startAt([query])
-          .endAt(['$query'])
+          .endAt(['${query}\uf8ff'])
           .limit(10)
           .get();
 
@@ -331,12 +332,27 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<void> sendFriendRequest(FriendModel user) async {
-    if (_sentRequestIds.contains(user.id)) return;
+    final userId = _userId;
+    if (userId == null || _sentRequestIds.contains(user.id)) return;
     _sentRequestIds.add(user.id);
     try {
+      final existingOutgoing = await _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .get();
+      final hasPendingRequest = existingOutgoing.docs.any((doc) {
+        final data = doc.data();
+        return data['recipient_id'] == user.id &&
+            data['type'] == 'friend_request' &&
+            data['status'] == 'pending';
+      });
+      if (hasPendingRequest) {
+        return;
+      }
+
       await _db.collection('inbox_items').add({
         'recipient_id': user.id,
-        'sender_id': _userId!,
+        'sender_id': userId,
         'type': 'friend_request',
         'payload': <String, dynamic>{},
         'status': 'pending',
@@ -421,7 +437,7 @@ class FriendsController extends StateNotifier<FriendsState> {
     for (var i = 0; i < uniqueIds.length; i += 10) {
       final chunk = uniqueIds.skip(i).take(10).toList();
       final snapshot = await _db
-          .collection('users')
+          .collection(userProfilesCollection)
           .where(FieldPath.documentId, whereIn: chunk)
           .get();
       users.addAll(
@@ -451,3 +467,4 @@ class FriendsController extends StateNotifier<FriendsState> {
     super.dispose();
   }
 }
+
