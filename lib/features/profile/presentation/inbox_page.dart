@@ -319,6 +319,22 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
     }
   }
 
+  Future<void> _dismiss() async {
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(debtControllerProvider.notifier)
+          .dismissDebtNotification(widget.request.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final symbol = ref.watch(currencySymbolProvider);
@@ -333,6 +349,9 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
     );
     final debt = widget.request.debt;
     final isSettlement = widget.request.type == DebtRequestType.settlement;
+    final isNotification = widget.request.type == DebtRequestType.debtAccepted ||
+        widget.request.type == DebtRequestType.debtDeclined;
+    final isAcceptedNotification = widget.request.type == DebtRequestType.debtAccepted;
     final debtState = ref.watch(debtControllerProvider);
     final settlementDebts = widget.request.debtIds
         .map((id) => debtState.debts.where((item) => item.id == id).firstOrNull)
@@ -354,10 +373,24 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
           Row(
             children: [
               CircleAvatar(
-                backgroundColor: MoniTheme.softGreen,
+                backgroundColor: isNotification
+                    ? isAcceptedNotification
+                          ? MoniTheme.softGreen
+                          : const Color(0xFFFFE5E5)
+                    : MoniTheme.softGreen,
                 child: Icon(
-                  isSettlement ? LucideIcons.check : LucideIcons.handCoins,
-                  color: MoniTheme.primaryGreen,
+                  isNotification
+                      ? isAcceptedNotification
+                            ? LucideIcons.circleCheck
+                            : LucideIcons.circleX
+                      : isSettlement
+                          ? LucideIcons.check
+                          : LucideIcons.handCoins,
+                  color: isNotification
+                      ? isAcceptedNotification
+                            ? MoniTheme.primaryGreen
+                            : const Color(0xFFEF4444)
+                      : MoniTheme.primaryGreen,
                 ),
               ),
               const SizedBox(width: 14),
@@ -427,6 +460,14 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
           const SizedBox(height: 14),
           if (_loading)
             const Center(child: CircularProgressIndicator())
+          else if (isNotification)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _dismiss,
+                child: const Text('Dismiss'),
+              ),
+            )
           else
             Row(
               children: [

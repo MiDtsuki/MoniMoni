@@ -230,7 +230,7 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
             deadline: _deadline,
             note: _noteController.text,
           );
-      if (mounted) context.pop();
+      if (mounted) context.go('/debts');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)

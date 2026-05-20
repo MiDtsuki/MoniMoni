@@ -7,7 +7,7 @@ enum DebtDirection { owedToMe, iOwe }
 
 enum DebtStatus { pending, active, settled }
 
-enum DebtRequestType { debt, settlement }
+enum DebtRequestType { debt, settlement, debtAccepted, debtDeclined }
 
 @immutable
 class DebtModel {
