@@ -130,13 +130,21 @@ class FriendsController extends StateNotifier<FriendsState> {
             _buildRequests(acceptedDocs),
           ]).then((results) {
             if (mounted && gen == _requestsGeneration) {
+              // Immediately merge accepted-notification senders into friends
+              // so User A sees the new friend as soon as the notification
+              // arrives — mirrors the local-state update in acceptFriendRequest.
+              final existingIds = state.friends.map((f) => f.id).toSet();
+              final newFriends = results[1]
+                  .where((n) => !existingIds.contains(n.user.id))
+                  .map((n) => n.user)
+                  .toList();
               state = state.copyWith(
                 requests: results[0],
                 acceptedNotifications: results[1],
+                friends: newFriends.isEmpty
+                    ? null
+                    : [...state.friends, ...newFriends],
               );
-              // Reload friends from Firestore whenever we receive new accepted
-              // notifications so the sender sees the friend immediately without
-              // relying on notification data being in state.
               if (results[1].isNotEmpty) _loadFriends();
             }
           }).catchError((Object e) {
