@@ -56,7 +56,6 @@ class UsernameFormatException implements Exception {
 Future<void> createAccountRecords({
   required FirebaseFirestore db,
   required User user,
-  required String displayName,
   required String fullName,
   required String username,
   required String email,
@@ -90,8 +89,8 @@ Future<void> createAccountRecords({
       'created_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     tx.set(profileRef, {
-      'display_name': displayName,
-      'display_name_lower': normalizeUsername(displayName),
+      'display_name': normalizedUsername,
+      'display_name_lower': normalizedUsername,
       'username': normalizedUsername,
       'username_lower': normalizedUsername,
       'created_at': FieldValue.serverTimestamp(),
@@ -107,7 +106,6 @@ Future<void> createAccountRecords({
 Future<void> ensureAccountRecords({
   required FirebaseFirestore db,
   required User user,
-  required String displayName,
   required String fullName,
   required String username,
   required String email,
@@ -153,8 +151,8 @@ Future<void> ensureAccountRecords({
 
     if (!profileSnapshot.exists) {
       tx.set(profileRef, {
-        'display_name': displayName,
-        'display_name_lower': normalizeUsername(displayName),
+        'display_name': normalizedUsername,
+        'display_name_lower': normalizedUsername,
         'username': normalizedUsername,
         'username_lower': normalizedUsername,
         'created_at': FieldValue.serverTimestamp(),
@@ -162,17 +160,26 @@ Future<void> ensureAccountRecords({
     } else {
       final profileData = profileSnapshot.data() ?? const <String, dynamic>{};
       final patch = <String, dynamic>{};
-      if ((profileData['display_name'] as String?)?.trim().isEmpty ?? true) {
-        patch['display_name'] = displayName;
+      final currentDisplayName = profileData['display_name'] as String?;
+      if (currentDisplayName == null ||
+          currentDisplayName.trim().isEmpty ||
+          currentDisplayName.trim() != normalizedUsername) {
+        patch['display_name'] = normalizedUsername;
       }
-      if ((profileData['display_name_lower'] as String?)?.trim().isEmpty ??
-          true) {
-        patch['display_name_lower'] = normalizeUsername(displayName);
+      final currentDisplayNameLower =
+          profileData['display_name_lower'] as String?;
+      if (currentDisplayNameLower == null ||
+          currentDisplayNameLower.trim().isEmpty ||
+          currentDisplayNameLower.trim() != normalizedUsername) {
+        patch['display_name_lower'] = normalizedUsername;
       }
-      if ((profileData['username'] as String?)?.trim().isEmpty ?? true) {
+      if ((profileData['username'] as String?)?.trim().isEmpty ?? true ||
+          (profileData['username'] as String?)?.trim() != normalizedUsername) {
         patch['username'] = normalizedUsername;
       }
-      if ((profileData['username_lower'] as String?)?.trim().isEmpty ?? true) {
+      if ((profileData['username_lower'] as String?)?.trim().isEmpty ?? true ||
+          (profileData['username_lower'] as String?)?.trim() !=
+              normalizedUsername) {
         patch['username_lower'] = normalizedUsername;
       }
       if (patch.isNotEmpty) {

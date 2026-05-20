@@ -102,30 +102,40 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     }
 
     try {
-      final userSnapshot = await _fetchUserDoc();
+      final userSnapshotFuture = _fetchUserDoc();
+      final profileSnapshotFuture = _fetchProfileDoc();
+      final userSnapshot = await userSnapshotFuture;
+      final profileSnapshot = await profileSnapshotFuture;
       final legacyUserData = userSnapshot.data();
+      final legacyProfileData = profileSnapshot.data();
       final legacyDisplayName = legacyUserData?['display_name'] as String?;
       final legacyFullName = legacyUserData?['full_name'] as String?;
       final legacyUsername = legacyUserData?['username'] as String?;
       final legacyCurrency = legacyUserData?['currency'] as String?;
-      final bootstrapDisplayName = _firstNonEmpty([
-        legacyDisplayName,
-        fallback.displayName,
-      ]);
+      final profileUsername = legacyProfileData?['username'] as String?;
+      final profileDisplayName = legacyProfileData?['display_name'] as String?;
       final bootstrapFullName = _firstNonEmpty([
         legacyFullName,
         legacyDisplayName,
         fallback.displayName,
       ]);
       final bootstrapUsername = suggestUsername(
-        _firstNonEmpty([legacyUsername, fallback.username]),
+        _firstNonEmpty([
+          profileUsername,
+          legacyUsername,
+          user.displayName,
+          profileDisplayName,
+          fallback.username,
+        ]),
         fallback: user.uid.substring(0, 8),
       );
+      if ((user.displayName ?? '').trim() != bootstrapUsername) {
+        await user.updateDisplayName(bootstrapUsername);
+      }
 
       await ensureAccountRecords(
         db: _db,
         user: user,
-        displayName: bootstrapDisplayName,
         fullName: bootstrapFullName,
         username: bootstrapUsername,
         email: user.email ?? '',
@@ -133,10 +143,10 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
       );
 
       final refreshedUserSnapshot = await _fetchUserDoc();
-      final profileSnapshot = await _fetchProfileDoc();
       final creditEventSnapshot = await _fetchCreditScoreEvents();
       final privateRow = refreshedUserSnapshot.data();
-      final profileRow = profileSnapshot.data();
+      final refreshedProfileSnapshot = await _fetchProfileDoc();
+      final profileRow = refreshedProfileSnapshot.data();
       if (privateRow == null || profileRow == null) return;
       final creditScore = _scoreFromEvents(creditEventSnapshot.docs);
 
@@ -149,7 +159,10 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
       if (mounted) {
         state = ProfileSettings(
           currency: currency,
-          displayName: profileRow['display_name'] as String? ?? '',
+          displayName:
+              profileRow['username'] as String? ??
+              profileRow['display_name'] as String? ??
+              '',
           username: profileRow['username'] as String? ?? '',
           creditScore: creditScore,
         );
@@ -189,7 +202,10 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
     return ProfileSettings(
       currency: currency,
       displayName: _firstNonEmpty([displayName, emailName, 'Profile']),
-      username: suggestUsername(_firstNonEmpty([emailName]), fallback: 'profile'),
+      username: suggestUsername(
+        _firstNonEmpty([displayName, emailName]),
+        fallback: 'profile',
+      ),
     );
   }
 

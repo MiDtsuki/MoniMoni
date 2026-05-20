@@ -29,11 +29,13 @@ class FriendsState {
   const FriendsState({
     required this.friends,
     required this.requests,
+    this.outgoingRequests = const [],
     this.acceptedNotifications = const [],
   });
 
   final List<FriendModel> friends;
   final List<FriendRequestModel> requests;
+  final List<FriendRequestModel> outgoingRequests;
   final List<FriendRequestModel> acceptedNotifications;
 
   List<FriendRequestModel> get pendingRequests =>
@@ -42,11 +44,13 @@ class FriendsState {
   FriendsState copyWith({
     List<FriendModel>? friends,
     List<FriendRequestModel>? requests,
+    List<FriendRequestModel>? outgoingRequests,
     List<FriendRequestModel>? acceptedNotifications,
   }) {
     return FriendsState(
       friends: friends ?? this.friends,
       requests: requests ?? this.requests,
+      outgoingRequests: outgoingRequests ?? this.outgoingRequests,
       acceptedNotifications:
           acceptedNotifications ?? this.acceptedNotifications,
     );
@@ -131,8 +135,8 @@ class FriendsController extends StateNotifier<FriendsState> {
 
           final gen = ++_requestsGeneration;
           Future.wait([
-            _buildRequests(requestDocs),
-            _buildRequests(acceptedDocs),
+            _buildRequests(requestDocs, counterpartField: 'sender_id'),
+            _buildRequests(acceptedDocs, counterpartField: 'sender_id'),
           ]).then((results) {
             if (mounted && gen == _requestsGeneration) {
               // Immediately merge accepted-notification senders into friends
@@ -167,6 +171,37 @@ class FriendsController extends StateNotifier<FriendsState> {
     // before the server response arrives. If the cache is empty or stale (e.g.
     // User A's device never wrote the friendship — User B did), that first
     // snapshot would incorrectly wipe state.friends. We skip it.
+    _subscriptions.add(
+      _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .snapshots()
+          .listen(
+        (snapshot) {
+          final outgoingDocs = snapshot.docs.where((doc) {
+            final data = doc.data();
+            return data['type'] == 'friend_request' &&
+                data['status'] == 'pending';
+          }).toList();
+
+          final gen = ++_requestsGeneration;
+          _buildRequests(
+            outgoingDocs,
+            counterpartField: 'recipient_id',
+            isOutgoing: true,
+          ).then((requests) {
+            if (mounted && gen == _requestsGeneration) {
+              state = state.copyWith(outgoingRequests: requests);
+            }
+          }).catchError((Object e) {
+            debugPrint('FriendsController outgoing update failed: $e');
+          });
+        },
+        onError: (Object e) =>
+            debugPrint('FriendsController outgoing stream error: $e'),
+      ),
+    );
+
     _subscriptions.add(
       _db
           .collection('friendships')
@@ -233,11 +268,32 @@ class FriendsController extends StateNotifier<FriendsState> {
         return data['type'] == 'friend_request_accepted' &&
             data['status'] == 'pending';
       }).toList();
-      final requests = await _buildRequests(requestDocs);
-      final notifications = await _buildRequests(acceptedDocs);
+      final outgoingDocs = await _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .get();
+      final outgoingRequestDocs = outgoingDocs.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request' &&
+            data['status'] == 'pending';
+      }).toList();
+      final requests = await _buildRequests(
+        requestDocs,
+        counterpartField: 'sender_id',
+      );
+      final notifications = await _buildRequests(
+        acceptedDocs,
+        counterpartField: 'sender_id',
+      );
+      final outgoingRequests = await _buildRequests(
+        outgoingRequestDocs,
+        counterpartField: 'recipient_id',
+        isOutgoing: true,
+      );
       if (mounted) {
         state = state.copyWith(
           requests: requests,
+          outgoingRequests: outgoingRequests,
           acceptedNotifications: notifications,
         );
       }
@@ -265,31 +321,34 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<List<FriendRequestModel>> _buildRequests(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) async {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    required String counterpartField,
+    bool isOutgoing = false,
+  }) async {
     if (docs.isEmpty) return [];
 
-    final senderIds = docs
-        .map((doc) => doc.data()['sender_id'] as String? ?? '')
+    final counterpartIds = docs
+        .map((doc) => doc.data()[counterpartField] as String? ?? '')
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList();
 
-    final senderProfiles = {
-      for (final user in await _loadUsersByIds(senderIds)) user.id: user,
+    final userProfiles = {
+      for (final user in await _loadUsersByIds(counterpartIds)) user.id: user,
     };
 
     final requests = <FriendRequestModel>[];
     for (final doc in docs) {
       final data = doc.data();
-      final senderId = data['sender_id'] as String? ?? '';
-      final sender = senderProfiles[senderId];
-      if (sender != null) {
+      final counterpartId = data[counterpartField] as String? ?? '';
+      final counterpart = userProfiles[counterpartId];
+      if (counterpart != null) {
         requests.add(
           FriendRequestModel(
             id: doc.id,
-            user: sender,
+            user: counterpart,
             createdAt: _readDate(data['created_at']),
+            isOutgoing: isOutgoing,
           ),
         );
       }
@@ -298,8 +357,8 @@ class FriendsController extends StateNotifier<FriendsState> {
     return requests;
   }
 
-  Future<List<FriendModel>> searchUsers(String displayName) async {
-    final query = displayName.trim().toLowerCase();
+  Future<List<FriendModel>> searchUsers(String username) async {
+    final query = username.trim().toLowerCase();
     if (query.isEmpty) return [];
 
     try {
@@ -307,10 +366,12 @@ class FriendsController extends StateNotifier<FriendsState> {
       if (userId == null) return [];
       final friendIds = state.friends.map((f) => f.id).toSet();
       final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
+      final outgoingIds =
+          state.outgoingRequests.map((r) => r.user.id).toSet();
 
       final rows = await _db
           .collection(userProfilesCollection)
-          .orderBy('display_name_lower')
+          .orderBy('username_lower')
           .startAt([query])
           .endAt(['${query}\uf8ff'])
           .limit(10)
@@ -323,6 +384,7 @@ class FriendsController extends StateNotifier<FriendsState> {
                 user.id != userId &&
                 !friendIds.contains(user.id) &&
                 !requestedIds.contains(user.id) &&
+                !outgoingIds.contains(user.id) &&
                 !_sentRequestIds.contains(user.id),
           )
           .toList();
@@ -358,6 +420,19 @@ class FriendsController extends StateNotifier<FriendsState> {
         'status': 'pending',
         'created_at': FieldValue.serverTimestamp(),
       });
+      if (mounted) {
+        state = state.copyWith(
+          outgoingRequests: [
+            FriendRequestModel(
+              id: 'local_${user.id}',
+              user: user,
+              createdAt: DateTime.now(),
+              isOutgoing: true,
+            ),
+            ...state.outgoingRequests,
+          ],
+        );
+      }
     } catch (_) {
       _sentRequestIds.remove(user.id);
     }

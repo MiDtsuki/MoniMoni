@@ -30,19 +30,25 @@ class FriendRequestModel {
     required this.user,
     required this.createdAt,
     this.status = FriendRequestStatus.pending,
+    this.isOutgoing = false,
   });
 
   final String id;
   final FriendModel user;
   final DateTime createdAt;
   final FriendRequestStatus status;
+  final bool isOutgoing;
 
-  FriendRequestModel copyWith({FriendRequestStatus? status}) {
+  FriendRequestModel copyWith({
+    FriendRequestStatus? status,
+    bool? isOutgoing,
+  }) {
     return FriendRequestModel(
       id: id,
       user: user,
       createdAt: createdAt,
       status: status ?? this.status,
+      isOutgoing: isOutgoing ?? this.isOutgoing,
     );
   }
 }

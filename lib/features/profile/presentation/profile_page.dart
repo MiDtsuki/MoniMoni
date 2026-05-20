@@ -524,21 +524,21 @@ class _AddFriendSectionState extends ConsumerState<_AddFriendSection> {
         children: [
           Text('Add friend', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 6),
-          const Text('Search by display name and send a friend request.'),
+          const Text('Search by username and send a friend request.'),
           const SizedBox(height: 14),
           TextField(
             controller: _controller,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                prefixIcon: Icon(LucideIcons.search),
-              ),
+            decoration: const InputDecoration(
+              labelText: 'Username',
+              prefixIcon: Icon(LucideIcons.search),
+            ),
             onChanged: _search,
           ),
           const SizedBox(height: 12),
           if (_controller.text.isNotEmpty && _results.isEmpty)
             const EmptyState(
               title: 'No users found',
-              message: 'Try searching by display name.',
+              message: 'Try searching by username.',
               icon: LucideIcons.search,
             )
           else

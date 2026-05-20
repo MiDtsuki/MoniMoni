@@ -7,7 +7,13 @@ enum DebtDirection { owedToMe, iOwe }
 
 enum DebtStatus { pending, active, settled }
 
-enum DebtRequestType { debt, settlement, debtAccepted, debtDeclined }
+enum DebtRequestType {
+  debt,
+  settlement,
+  debtAccepted,
+  debtDeclined,
+  settlementAccepted,
+}
 
 @immutable
 class DebtModel {
@@ -125,6 +131,7 @@ class DebtRequestModel {
     this.debt,
     this.debtIds = const [],
     this.paymentInfo = const SettlementPaymentInfo.cash(),
+    this.isOutgoing = false,
   });
 
   final String id;
@@ -136,4 +143,5 @@ class DebtRequestModel {
   final DebtModel? debt;
   final List<String> debtIds;
   final SettlementPaymentInfo paymentInfo;
+  final bool isOutgoing;
 }

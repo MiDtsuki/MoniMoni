@@ -426,36 +426,64 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
 
   Future<void> _submit() async {
     final email = _emailCtrl.text.trim();
-    if (email.isEmpty) {
+    final emailError = _validateEmail(email);
+    if (emailError != null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Enter your email address')));
+      ).showSnackBar(SnackBar(content: Text(emailError)));
       return;
     }
     setState(() => _loading = true);
+    // Capture the messenger and navigator before the dialog pops, so the
+    // snackbar lands on the page underneath instead of being torn down with
+    // the dialog (which is what made "sent" feel like nothing happened).
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset email sent.')),
-        );
-        Navigator.of(context).pop();
-      }
+      if (!mounted) return;
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 5),
+          content: Text(
+            'If that email is registered, a reset link is on the way. '
+            'Check your inbox and spam folder.',
+          ),
+        ),
+      );
     } on FirebaseAuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? 'Could not send reset email.')),
-        );
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(_friendlyResetError(e))),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+}
+
+String _friendlyResetError(FirebaseAuthException e) {
+  switch (e.code) {
+    case 'invalid-email':
+      return 'That email address is not valid.';
+    case 'user-not-found':
+      return 'No account is registered with that email.';
+    case 'too-many-requests':
+      return 'Too many attempts. Try again in a few minutes.';
+    case 'network-request-failed':
+      return 'No internet connection. Check your network and try again.';
+    case 'missing-android-pkg-name':
+    case 'missing-continue-uri':
+    case 'missing-ios-bundle-id':
+    case 'invalid-continue-uri':
+    case 'unauthorized-continue-uri':
+      return 'Could not send the reset email (Firebase action URL is not configured).';
+    default:
+      return e.message ?? 'Could not send reset email.';
   }
 }
 

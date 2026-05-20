@@ -24,11 +24,15 @@ class InboxPage extends ConsumerWidget {
     final friendsState = ref.watch(friendsControllerProvider);
     final debtState = ref.watch(debtControllerProvider);
     final friendRequests = friendsState.pendingRequests;
+    final outgoingFriendRequests = friendsState.outgoingRequests;
     final acceptedNotifications = friendsState.acceptedNotifications;
     final debtRequests = debtState.pendingRequests;
+    final outgoingDebtRequests = debtState.outgoingRequests;
     final hasRequests = friendRequests.isNotEmpty ||
+        outgoingFriendRequests.isNotEmpty ||
         acceptedNotifications.isNotEmpty ||
-        debtRequests.isNotEmpty;
+        debtRequests.isNotEmpty ||
+        outgoingDebtRequests.isNotEmpty;
 
     return Scaffold(
       body: AppPage(
@@ -47,6 +51,14 @@ class InboxPage extends ConsumerWidget {
         child: hasRequests
             ? Column(
                 children: [
+                  for (final request in outgoingFriendRequests) ...[
+                    _FriendRequestCard(request: request),
+                    const SizedBox(height: 12),
+                  ],
+                  for (final request in outgoingDebtRequests) ...[
+                    _DebtRequestCard(request: request),
+                    const SizedBox(height: 12),
+                  ],
                   for (final notification in acceptedNotifications) ...[
                     _FriendAcceptedCard(notification: notification),
                     const SizedBox(height: 12),
@@ -222,11 +234,13 @@ class _FriendRequestCardState extends ConsumerState<_FriendRequestCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${widget.request.user.name} sent a friend request',
+                  widget.request.isOutgoing
+                      ? 'Friend request sent to ${widget.request.user.name}'
+                      : '${widget.request.user.name} sent a friend request',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 2),
-                Text(widget.request.user.username),
+                Text('@${widget.request.user.username}'),
               ],
             ),
           ),
@@ -237,6 +251,17 @@ class _FriendRequestCardState extends ConsumerState<_FriendRequestCard> {
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else if (widget.request.isOutgoing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'Pending',
+                style: TextStyle(
+                  color: MoniTheme.primaryGreen,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             )
           else ...[
@@ -350,8 +375,12 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
     final debt = widget.request.debt;
     final isSettlement = widget.request.type == DebtRequestType.settlement;
     final isNotification = widget.request.type == DebtRequestType.debtAccepted ||
-        widget.request.type == DebtRequestType.debtDeclined;
-    final isAcceptedNotification = widget.request.type == DebtRequestType.debtAccepted;
+        widget.request.type == DebtRequestType.debtDeclined ||
+        widget.request.type == DebtRequestType.settlementAccepted;
+    final isAcceptedNotification =
+        widget.request.type == DebtRequestType.debtAccepted ||
+        widget.request.type == DebtRequestType.settlementAccepted;
+    final isOutgoing = widget.request.isOutgoing;
     final debtState = ref.watch(debtControllerProvider);
     final settlementDebts = widget.request.debtIds
         .map((id) => debtState.debts.where((item) => item.id == id).firstOrNull)
@@ -399,7 +428,9 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isSettlement
+                      isOutgoing
+                          ? widget.request.title
+                          : isSettlement
                           ? isSettleAll
                                 ? 'Settle all request'
                                 : 'Settlement request'
@@ -466,6 +497,19 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
               child: OutlinedButton(
                 onPressed: _dismiss,
                 child: const Text('Dismiss'),
+              ),
+            )
+          else if (isOutgoing)
+            const SizedBox(
+              width: double.infinity,
+              child: Center(
+                child: Text(
+                  'Pending',
+                  style: TextStyle(
+                    color: MoniTheme.primaryGreen,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             )
           else

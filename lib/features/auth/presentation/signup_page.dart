@@ -22,7 +22,6 @@ class SignupPage extends ConsumerStatefulWidget {
 
 class _SignupPageState extends ConsumerState<SignupPage> {
   final _formKey = GlobalKey<FormState>();
-  final _displayNameController = TextEditingController();
   final _fullNameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -33,7 +32,6 @@ class _SignupPageState extends ConsumerState<SignupPage> {
 
   @override
   void dispose() {
-    _displayNameController.dispose();
     _fullNameController.dispose();
     _usernameController.dispose();
     _emailController.dispose();
@@ -52,22 +50,6 @@ class _SignupPageState extends ConsumerState<SignupPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextFormField(
-              controller: _displayNameController,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.nickname],
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                prefixIcon: Icon(LucideIcons.userRound),
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Enter your display name';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
             TextFormField(
               controller: _fullNameController,
               textInputAction: TextInputAction.next,
@@ -182,7 +164,6 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     try {
       final auth = ref.read(firebaseAuthProvider);
       final db = ref.read(firestoreProvider);
-      final displayName = _displayNameController.text.trim();
       final fullName = _fullNameController.text.trim();
       final username = _usernameController.text.trim();
       final email = _emailController.text.trim();
@@ -199,11 +180,10 @@ class _SignupPageState extends ConsumerState<SignupPage> {
         );
       }
 
-      await user.updateDisplayName(displayName);
+      await user.updateDisplayName(username);
       await createAccountRecords(
         db: db,
         user: user,
-        displayName: displayName,
         fullName: fullName,
         username: username,
         email: email,

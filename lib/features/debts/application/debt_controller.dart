@@ -28,20 +28,27 @@ final debtControllerProvider = StateNotifierProvider<DebtController, DebtState>(
 );
 
 class DebtState {
-  const DebtState({required this.debts, required this.requests});
+  const DebtState({
+    required this.debts,
+    required this.requests,
+    this.outgoingRequests = const [],
+  });
 
   final List<DebtModel> debts;
   final List<DebtRequestModel> requests;
+  final List<DebtRequestModel> outgoingRequests;
 
   List<DebtRequestModel> get pendingRequests => requests;
 
   DebtState copyWith({
     List<DebtModel>? debts,
     List<DebtRequestModel>? requests,
+    List<DebtRequestModel>? outgoingRequests,
   }) {
     return DebtState(
       debts: debts ?? this.debts,
       requests: requests ?? this.requests,
+      outgoingRequests: outgoingRequests ?? this.outgoingRequests,
     );
   }
 }
@@ -85,6 +92,13 @@ class DebtController extends StateNotifier<DebtState> {
     );
     _subscriptions.add(
       _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: _userId)
+          .snapshots()
+          .listen((_) => _load()),
+    );
+    _subscriptions.add(
+      _db
           .collection('debts')
           .where('participants', arrayContains: _userId)
           .snapshots()
@@ -118,6 +132,7 @@ class DebtController extends StateNotifier<DebtState> {
           .get();
 
       final requests = <DebtRequestModel>[];
+      final outgoingRequests = <DebtRequestModel>[];
       for (final doc in inboxSnapshot.docs) {
         final data = doc.data();
         if ((data['status'] as String?) != 'pending') continue;
@@ -125,7 +140,8 @@ class DebtController extends StateNotifier<DebtState> {
         if (type != 'debt_request' &&
             type != 'settlement_request' &&
             type != 'debt_accepted' &&
-            type != 'debt_declined') {
+            type != 'debt_declined' &&
+            type != 'settlement_accepted') {
           continue;
         }
 
@@ -172,6 +188,25 @@ class DebtController extends StateNotifier<DebtState> {
               ),
             ),
           );
+        } else if (type == 'settlement_accepted') {
+          // Acknowledgement back to the original settlement-request sender.
+          final debtIds =
+              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
+          requests.add(
+            DebtRequestModel(
+              id: doc.id,
+              type: DebtRequestType.settlementAccepted,
+              friendId: senderId,
+              createdAt: createdAt,
+              title: debtIds.length > 1
+                  ? 'Settle all accepted'
+                  : 'Settlement accepted',
+              description: debtIds.length > 1
+                  ? 'Your friend accepted your settle-all request.'
+                  : 'Your friend accepted your settlement request.',
+              debtIds: debtIds,
+            ),
+          );
         } else {
           // debt_accepted or debt_declined — notification back to the sender.
           final debtId = payload['debt_id'] as String?;
@@ -196,10 +231,75 @@ class DebtController extends StateNotifier<DebtState> {
         }
       }
 
+      final sentInboxSnapshot = await _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .get();
+      for (final doc in sentInboxSnapshot.docs) {
+        final data = doc.data();
+        if ((data['status'] as String?) != 'pending') continue;
+        final type = data['type'] as String? ?? '';
+        if (type != 'debt_request' && type != 'settlement_request') {
+          continue;
+        }
+
+        final payload = (data['payload'] as Map<String, dynamic>? ??
+                const <String, dynamic>{})
+            .cast<String, dynamic>();
+        final recipientId = data['recipient_id'] as String? ?? '';
+        final createdAt = _readDate(data['created_at']);
+
+        if (type == 'debt_request') {
+          final debtId = payload['debt_id'] as String?;
+          final debt = debtId != null ? debtsById[debtId] : null;
+          outgoingRequests.add(
+            DebtRequestModel(
+              id: doc.id,
+              type: DebtRequestType.debt,
+              friendId: recipientId,
+              createdAt: createdAt,
+              title: debt?.isLent == true ? 'Lend request sent' : 'Borrow request sent',
+              description: debt?.isLent == true
+                  ? 'Waiting for your friend to approve the money you lent.'
+                  : 'Waiting for your friend to approve the money you borrowed.',
+              debt: debt,
+              isOutgoing: true,
+            ),
+          );
+        } else {
+          final debtIds =
+              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
+          outgoingRequests.add(
+            DebtRequestModel(
+              id: doc.id,
+              type: DebtRequestType.settlement,
+              friendId: recipientId,
+              createdAt: createdAt,
+              title: debtIds.length > 1
+                  ? 'Settle all request sent'
+                  : 'Settlement request sent',
+              description: debtIds.length > 1
+                  ? 'Waiting for your friend to approve settlement for all active debts.'
+                  : 'Waiting for your friend to approve this settlement.',
+              debtIds: debtIds,
+              paymentInfo: SettlementPaymentInfo.fromJson(
+                payload['payment'] as Map<String, dynamic>?,
+              ),
+              isOutgoing: true,
+            ),
+          );
+        }
+      }
+
       requests.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      outgoingRequests.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       if (mounted && gen == _loadGeneration) {
-        state = DebtState(debts: debts, requests: requests);
+        state = DebtState(
+          debts: debts,
+          requests: requests,
+          outgoingRequests: outgoingRequests,
+        );
       }
     } catch (error, stackTrace) {
       debugPrint('DebtController load failed: $error');
@@ -253,7 +353,24 @@ class DebtController extends StateNotifier<DebtState> {
 
     final debt = DebtModel.fromMap(debtRef.id, debtData, userId);
     if (mounted) {
-      state = state.copyWith(debts: [debt, ...state.debts]);
+      state = state.copyWith(
+        debts: [debt, ...state.debts],
+        outgoingRequests: [
+          DebtRequestModel(
+            id: inboxRef.id,
+            type: DebtRequestType.debt,
+            friendId: friendId,
+            createdAt: createdAt,
+            title: debt.isLent ? 'Lend request sent' : 'Borrow request sent',
+            description: debt.isLent
+                ? 'Waiting for your friend to approve the money you lent.'
+                : 'Waiting for your friend to approve the money you borrowed.',
+            debt: debt,
+            isOutgoing: true,
+          ),
+          ...state.outgoingRequests,
+        ],
+      );
     }
   }
 
@@ -368,6 +485,24 @@ class DebtController extends StateNotifier<DebtState> {
       'status': 'pending',
       'created_at': FieldValue.serverTimestamp(),
     });
+    if (mounted) {
+      state = state.copyWith(
+        outgoingRequests: [
+          DebtRequestModel(
+            id: 'local_settlement_$debtId',
+            type: DebtRequestType.settlement,
+            friendId: debt.friendId,
+            createdAt: DateTime.now(),
+            title: 'Settlement request sent',
+            description: 'Waiting for your friend to approve this settlement.',
+            debtIds: [debtId],
+            paymentInfo: paymentInfo,
+            isOutgoing: true,
+          ),
+          ...state.outgoingRequests,
+        ],
+      );
+    }
   }
 
   Future<void> createSettleAllRequest(
@@ -387,6 +522,25 @@ class DebtController extends StateNotifier<DebtState> {
       'status': 'pending',
       'created_at': FieldValue.serverTimestamp(),
     });
+    if (mounted) {
+      state = state.copyWith(
+        outgoingRequests: [
+          DebtRequestModel(
+            id: 'local_settle_all_$friendId',
+            type: DebtRequestType.settlement,
+            friendId: friendId,
+            createdAt: DateTime.now(),
+            title: 'Settle all request sent',
+            description:
+                'Waiting for your friend to approve settlement for all active debts.',
+            debtIds: debtIds,
+            paymentInfo: paymentInfo,
+            isOutgoing: true,
+          ),
+          ...state.outgoingRequests,
+        ],
+      );
+    }
   }
 
   Future<void> acceptSettlementRequest(String requestId) async {
@@ -396,13 +550,36 @@ class DebtController extends StateNotifier<DebtState> {
       if (request == null) return;
       final targetIds = request.debtIds.toSet().toList();
       final settledAt = DateTime.now().toUtc();
+      final senderId = request.friendId;
 
       await _runQueuedCreditScoreSync(
-        () => _settleDebtsWithCreditScoring(targetIds, settledAt),
+        () => _settleDebtsWithCreditScoring(
+          targetIds,
+          settledAt,
+          extraBatchWrites: (batch) {
+            // Commit the inbox accept and the sender-side acknowledgement
+            // in the SAME batch as the debt status flips, so a partial
+            // failure can't leave a settled debt with a still-pending
+            // settlement request in either user's inbox.
+            batch.set(
+              _db.collection('inbox_items').doc(requestId),
+              {'status': 'accepted'},
+              SetOptions(merge: true),
+            );
+            batch.set(
+              _db.collection('inbox_items').doc(),
+              {
+                'recipient_id': senderId,
+                'sender_id': _userId!,
+                'type': 'settlement_accepted',
+                'payload': {'debt_ids': targetIds},
+                'status': 'pending',
+                'created_at': FieldValue.serverTimestamp(),
+              },
+            );
+          },
+        ),
       );
-      await _db.collection('inbox_items').doc(requestId).set({
-        'status': 'accepted',
-      }, SetOptions(merge: true));
 
       if (mounted) {
         state = state.copyWith(
@@ -492,10 +669,18 @@ class DebtController extends StateNotifier<DebtState> {
 
   Future<void> _settleDebtsWithCreditScoring(
     List<String> debtIds,
-    DateTime settledAt,
-  ) async {
+    DateTime settledAt, {
+    void Function(WriteBatch batch)? extraBatchWrites,
+  }) async {
     final userId = _userId;
-    if (userId == null || debtIds.isEmpty) return;
+    if (userId == null || debtIds.isEmpty) {
+      if (extraBatchWrites != null) {
+        final standaloneBatch = _db.batch();
+        extraBatchWrites(standaloneBatch);
+        await standaloneBatch.commit();
+      }
+      return;
+    }
 
     await _applyOverdueCreditPenalties(
       now: settledAt,
@@ -540,6 +725,7 @@ class DebtController extends StateNotifier<DebtState> {
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
+    extraBatchWrites?.call(batch);
     await batch.commit();
   }
 
@@ -552,18 +738,24 @@ class DebtController extends StateNotifier<DebtState> {
     required DateTime eventDate,
   }) async {
     final eventRef = _db.collection(creditScoreEventsCollection).doc(eventId);
-    final snapshot = await eventRef.get();
-    if (snapshot.exists) return;
-
-    await eventRef.set({
-      'user_id': userId,
-      'debt_id': debtId,
-      'event_type': eventType,
-      'points': points,
-      'event_date': Timestamp.fromDate(
-        DateTime.utc(eventDate.year, eventDate.month, eventDate.day),
-      ),
-      'created_at': FieldValue.serverTimestamp(),
+    // Transaction so a concurrent writer on another device can't get
+    // past `exists` and then collide on a second `set` (rules forbid
+    // update on credit_score_events, so the loser would otherwise see
+    // permission-denied). Firestore auto-retries the loser, which will
+    // then observe `exists` and exit cleanly.
+    await _db.runTransaction((tx) async {
+      final snapshot = await tx.get(eventRef);
+      if (snapshot.exists) return;
+      tx.set(eventRef, {
+        'user_id': userId,
+        'debt_id': debtId,
+        'event_type': eventType,
+        'points': points,
+        'event_date': Timestamp.fromDate(
+          DateTime.utc(eventDate.year, eventDate.month, eventDate.day),
+        ),
+        'created_at': FieldValue.serverTimestamp(),
+      });
     });
   }
 

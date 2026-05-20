@@ -177,7 +177,8 @@ service cloud.firestore {
           request.resource.data.type == 'debt_request' ||
           request.resource.data.type == 'debt_accepted' ||
           request.resource.data.type == 'debt_declined' ||
-          request.resource.data.type == 'settlement_request'
+          request.resource.data.type == 'settlement_request' ||
+          request.resource.data.type == 'settlement_accepted'
         );
     }
 
@@ -313,7 +314,13 @@ service cloud.firestore {
     }
 
     match /credit_score_events/{eventId} {
-      allow read: if signedIn() && resource.data.user_id == request.auth.uid;
+      allow read: if signedIn() &&
+        (
+          !exists(/databases/$(database)/documents/credit_score_events/$(eventId)) ||
+          resource.data.user_id == request.auth.uid ||
+          request.auth.uid in
+            get(/databases/$(database)/documents/debts/$(resource.data.debt_id)).data.participants
+        );
       allow create: if signedIn() && validCreditScoreEventCreateData();
       allow update, delete: if false;
     }
