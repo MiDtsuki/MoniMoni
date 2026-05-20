@@ -89,7 +89,11 @@ class FriendsController extends StateNotifier<FriendsState> {
           .where('participants', arrayContains: userId)
           .get();
       final friends = await _buildFriends(snapshot.docs);
-      if (mounted && gen == _friendsGeneration) {
+      // Don't apply an empty cache result — it's stale and would wipe out
+      // friends that are already loaded from the server.
+      final isEmptyCache =
+          friends.isEmpty && snapshot.metadata.isFromCache;
+      if (mounted && gen == _friendsGeneration && !isEmptyCache) {
         state = state.copyWith(friends: friends);
       }
     } catch (e, st) {
@@ -158,6 +162,10 @@ class FriendsController extends StateNotifier<FriendsState> {
 
     // Friendships stream — fires for both sides whenever a friendship document
     // is created or updated, keeping state.friends in sync in real-time.
+    // NOTE: Firestore streams always deliver the local cache snapshot first,
+    // before the server response arrives. If the cache is empty or stale (e.g.
+    // User A's device never wrote the friendship — User B did), that first
+    // snapshot would incorrectly wipe state.friends. We skip it.
     _subscriptions.add(
       _db
           .collection('friendships')
@@ -165,6 +173,7 @@ class FriendsController extends StateNotifier<FriendsState> {
           .snapshots()
           .listen(
         (snapshot) {
+          if (snapshot.docs.isEmpty && snapshot.metadata.isFromCache) return;
           final gen = ++_friendsGeneration;
           _buildFriends(snapshot.docs).then((friends) {
             if (mounted && gen == _friendsGeneration) {
@@ -187,46 +196,52 @@ class FriendsController extends StateNotifier<FriendsState> {
     final userId = _userId;
     if (userId == null) return;
 
-    // Friends are loaded WITHOUT a generation guard so the result is always
-    // applied — the subscription's initial snapshot (which increments
-    // _friendsGeneration immediately) must not be able to discard this query.
+    // Friends: no generation guard so this always applies, even if the streams
+    // already incremented _friendsGeneration. Guard against an empty cache
+    // result overwriting friends that the server has already confirmed.
     try {
       final snapshot = await _db
           .collection('friendships')
           .where('participants', arrayContains: userId)
           .get();
       final friends = await _buildFriends(snapshot.docs);
-      if (mounted) state = state.copyWith(friends: friends);
+      final isEmptyCache =
+          friends.isEmpty && snapshot.metadata.isFromCache;
+      if (mounted && !isEmptyCache) {
+        state = state.copyWith(friends: friends);
+      }
     } catch (e, st) {
       debugPrint('FriendsController friends load failed: $e');
       debugPrintStack(stackTrace: st);
     }
 
+    // Single-field query avoids composite index requirements; type/status
+    // filtering is done in Dart below.
     try {
       final snapshot = await _db
           .collection('inbox_items')
           .where('recipient_id', isEqualTo: userId)
-          .where('type', isEqualTo: 'friend_request')
-          .where('status', isEqualTo: 'pending')
           .get();
-      final requests = await _buildRequests(snapshot.docs);
-      if (mounted) state = state.copyWith(requests: requests);
+      final requestDocs = snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request' &&
+            data['status'] == 'pending';
+      }).toList();
+      final acceptedDocs = snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request_accepted' &&
+            data['status'] == 'pending';
+      }).toList();
+      final requests = await _buildRequests(requestDocs);
+      final notifications = await _buildRequests(acceptedDocs);
+      if (mounted) {
+        state = state.copyWith(
+          requests: requests,
+          acceptedNotifications: notifications,
+        );
+      }
     } catch (e, st) {
-      debugPrint('FriendsController requests load failed: $e');
-      debugPrintStack(stackTrace: st);
-    }
-
-    try {
-      final snapshot = await _db
-          .collection('inbox_items')
-          .where('recipient_id', isEqualTo: userId)
-          .where('type', isEqualTo: 'friend_request_accepted')
-          .where('status', isEqualTo: 'pending')
-          .get();
-      final notifications = await _buildRequests(snapshot.docs);
-      if (mounted) state = state.copyWith(acceptedNotifications: notifications);
-    } catch (e, st) {
-      debugPrint('FriendsController accepted notifications load failed: $e');
+      debugPrint('FriendsController inbox load failed: $e');
       debugPrintStack(stackTrace: st);
     }
   }
