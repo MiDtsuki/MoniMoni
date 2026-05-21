@@ -16,6 +16,47 @@ import '../../debts/domain/friend_model.dart';
 import '../../debts/domain/settlement_payment_info.dart';
 import '../application/profile_settings_controller.dart';
 
+enum InboxFilter { all, friends, lend, borrow, settlement }
+
+extension on InboxFilter {
+  String get label {
+    switch (this) {
+      case InboxFilter.all:
+        return 'All';
+      case InboxFilter.friends:
+        return 'Friends';
+      case InboxFilter.lend:
+        return 'Lend';
+      case InboxFilter.borrow:
+        return 'Borrow';
+      case InboxFilter.settlement:
+        return 'Settlement';
+    }
+  }
+}
+
+final inboxFilterProvider = StateProvider.autoDispose<InboxFilter>(
+  (ref) => InboxFilter.all,
+);
+
+bool _debtRequestMatchesFilter(DebtRequestModel request, InboxFilter filter) {
+  if (filter == InboxFilter.all) return true;
+  if (filter == InboxFilter.friends) return false;
+  switch (request.type) {
+    case DebtRequestType.debt:
+    case DebtRequestType.debtAccepted:
+    case DebtRequestType.debtDeclined:
+      final debt = request.debt;
+      if (debt == null) return false;
+      if (filter == InboxFilter.lend) return debt.isLent;
+      if (filter == InboxFilter.borrow) return !debt.isLent;
+      return false;
+    case DebtRequestType.settlement:
+    case DebtRequestType.settlementAccepted:
+      return filter == InboxFilter.settlement;
+  }
+}
+
 class InboxPage extends ConsumerWidget {
   const InboxPage({super.key});
 
@@ -23,6 +64,8 @@ class InboxPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final friendsState = ref.watch(friendsControllerProvider);
     final debtState = ref.watch(debtControllerProvider);
+    final filter = ref.watch(inboxFilterProvider);
+
     final friendRequests = friendsState.pendingRequests;
     final outgoingFriendRequests = friendsState.outgoingRequests;
     final acceptedNotifications = friendsState.acceptedNotifications;
@@ -33,6 +76,26 @@ class InboxPage extends ConsumerWidget {
         acceptedNotifications.isNotEmpty ||
         debtRequests.isNotEmpty ||
         outgoingDebtRequests.isNotEmpty;
+
+    final showFriends =
+        filter == InboxFilter.all || filter == InboxFilter.friends;
+    final visibleOutgoingFriendRequests =
+        showFriends ? outgoingFriendRequests : const [];
+    final visibleFriendRequests = showFriends ? friendRequests : const [];
+    final visibleAcceptedNotifications =
+        showFriends ? acceptedNotifications : const [];
+    final visibleOutgoingDebtRequests = outgoingDebtRequests
+        .where((r) => _debtRequestMatchesFilter(r, filter))
+        .toList();
+    final visibleDebtRequests = debtRequests
+        .where((r) => _debtRequestMatchesFilter(r, filter))
+        .toList();
+
+    final visibleAny = visibleOutgoingFriendRequests.isNotEmpty ||
+        visibleFriendRequests.isNotEmpty ||
+        visibleAcceptedNotifications.isNotEmpty ||
+        visibleOutgoingDebtRequests.isNotEmpty ||
+        visibleDebtRequests.isNotEmpty;
 
     return Scaffold(
       body: AppPage(
@@ -51,25 +114,38 @@ class InboxPage extends ConsumerWidget {
         child: hasRequests
             ? Column(
                 children: [
-                  for (final request in outgoingFriendRequests) ...[
-                    _FriendRequestCard(request: request),
-                    const SizedBox(height: 12),
-                  ],
-                  for (final request in outgoingDebtRequests) ...[
-                    _DebtRequestCard(request: request),
-                    const SizedBox(height: 12),
-                  ],
-                  for (final notification in acceptedNotifications) ...[
-                    _FriendAcceptedCard(notification: notification),
-                    const SizedBox(height: 12),
-                  ],
-                  for (final request in friendRequests) ...[
-                    _FriendRequestCard(request: request),
-                    const SizedBox(height: 12),
-                  ],
-                  for (final request in debtRequests) ...[
-                    _DebtRequestCard(request: request),
-                    const SizedBox(height: 12),
+                  const _InboxFilterBar(),
+                  const SizedBox(height: 16),
+                  if (!visibleAny)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 32),
+                      child: Text(
+                        'No items match this filter.',
+                        style: TextStyle(color: MoniTheme.muted),
+                      ),
+                    )
+                  else ...[
+                    for (final request in visibleOutgoingFriendRequests) ...[
+                      _FriendRequestCard(request: request),
+                      const SizedBox(height: 12),
+                    ],
+                    for (final request in visibleOutgoingDebtRequests) ...[
+                      _DebtRequestCard(request: request),
+                      const SizedBox(height: 12),
+                    ],
+                    for (final notification
+                        in visibleAcceptedNotifications) ...[
+                      _FriendAcceptedCard(notification: notification),
+                      const SizedBox(height: 12),
+                    ],
+                    for (final request in visibleFriendRequests) ...[
+                      _FriendRequestCard(request: request),
+                      const SizedBox(height: 12),
+                    ],
+                    for (final request in visibleDebtRequests) ...[
+                      _DebtRequestCard(request: request),
+                      const SizedBox(height: 12),
+                    ],
                   ],
                 ],
               )
@@ -79,6 +155,48 @@ class InboxPage extends ConsumerWidget {
                     'Friend, debt, and settlement requests will appear here.',
                 icon: LucideIcons.bell,
               ),
+      ),
+    );
+  }
+}
+
+class _InboxFilterBar extends ConsumerWidget {
+  const _InboxFilterBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(inboxFilterProvider);
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: InboxFilter.values.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final value = InboxFilter.values[index];
+          final isSelected = value == selected;
+          return ChoiceChip(
+            label: Text(value.label),
+            selected: isSelected,
+            onSelected: (_) =>
+                ref.read(inboxFilterProvider.notifier).state = value,
+            selectedColor: MoniTheme.softGreen,
+            labelStyle: TextStyle(
+              color: isSelected ? MoniTheme.primaryGreen : Colors.black87,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: isSelected
+                    ? MoniTheme.primaryGreen
+                    : Colors.black.withValues(alpha: 0.08),
+              ),
+            ),
+            backgroundColor: Colors.white,
+            showCheckmark: false,
+          );
+        },
       ),
     );
   }
