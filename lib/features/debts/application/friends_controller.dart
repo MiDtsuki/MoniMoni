@@ -462,9 +462,13 @@ class FriendsController extends StateNotifier<FriendsState> {
           .doc(_friendshipId(userId, request.user.id)),
       {
         'participants': [userId, request.user.id]..sort(),
+        // Required by firestore.rules: the rule reads this inbox doc via
+        // getAfter() and refuses to create the friendship unless it's a
+        // friend_request between these two participants and is flipped to
+        // status='accepted' in the same batch.
+        'inbox_request_id': requestId,
         'created_at': FieldValue.serverTimestamp(),
       },
-      SetOptions(merge: true),
     );
     batch.set(notificationRef, {
       'recipient_id': request.user.id,
