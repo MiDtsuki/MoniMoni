@@ -439,13 +439,29 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     // the dialog (which is what made "sent" feel like nothing happened).
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final auth = FirebaseAuth.instance;
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      // Lock the locale so Firebase always renders the English reset
+      // template — avoids the "no email arrives" case caused by a
+      // broken/empty localized template inherited from the device locale.
+      await auth.setLanguageCode('en');
+      // Explicit ActionCodeSettings forces Firebase to use the hosted
+      // web app as the reset landing page instead of whatever continue
+      // URL is cached on the project. The host moni-624c6.web.app is
+      // auto-authorized for Firebase Auth, so this works without any
+      // console configuration.
+      await auth.sendPasswordResetEmail(
+        email: email,
+        actionCodeSettings: ActionCodeSettings(
+          url: 'https://moni-624c6.web.app/login',
+          handleCodeInApp: false,
+        ),
+      );
       if (!mounted) return;
       navigator.pop();
       messenger.showSnackBar(
         const SnackBar(
-          duration: Duration(seconds: 5),
+          duration: Duration(seconds: 6),
           content: Text(
             'If that email is registered, a reset link is on the way. '
             'Check your inbox and spam folder.',
@@ -453,11 +469,13 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
         ),
       );
     } on FirebaseAuthException catch (e) {
+      debugPrint('sendPasswordResetEmail failed: code=${e.code} message=${e.message}');
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(content: Text(_friendlyResetError(e))),
       );
     } catch (e) {
+      debugPrint('sendPasswordResetEmail error: $e');
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {

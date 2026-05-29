@@ -9,7 +9,7 @@ Moni (a.k.a. MoniOmega) is a Flutter app for tracking personal transactions and 
 - Routing: `go_router` 14.x with a `StatefulShellRoute.indexedStack` (4 tabs: Logs, Debts, Stats, Profile) and an auth-state redirect guard.
 - Backend: Firebase only — Auth, Cloud Firestore, and (written but not deployed) Cloud Functions.
 - Local: Drift + sqlite3 are wired but currently inert (no tables, no DAOs). Guest mode uses `SharedPreferences` via `lib/data/local/guest_store.dart`, not Drift.
-- Platforms configured: Android, iOS, Web have real Firebase config in `lib/firebase_options.dart`. Windows / macOS / Linux entries are still placeholders.
+- Platforms configured: Android, iOS, Web have real Firebase config in `lib/firebase_options.dart` and are the supported targets. Windows / macOS / Linux entries are still placeholders.
 
 ## Directory layout
 
@@ -85,6 +85,20 @@ Every cross-user action (friend request, debt request, settlement request, plus 
 - Guest mode stays offline-capable.
 - Demo-safe over production-hardened: client-side credit-score writes are acceptable while on Spark.
 - Don't write to `users` / `user_profiles` / `username_claims` outside `user_records.dart`.
+
+## Web build & deploy
+
+The same Flutter codebase runs on the web. Firebase Hosting is wired in `firebase.json` and `.firebaserc` points at the `moni-624c6` project.
+
+- Local dev: `flutter run -d chrome`
+- Release build: `flutter build web --release --no-tree-shake-icons` (the `--no-tree-shake-icons` flag is required — `lucide_icons_flutter` uses non-const `IconData`, which trips Flutter's tree-shaker).
+- Deploy: `firebase deploy --only hosting` (deploys `build/web/` to `https://moni-624c6.web.app`).
+- `https://moni-624c6.web.app` and `https://moni-624c6.firebaseapp.com` are automatically authorized for Firebase Auth. If you deploy under a custom domain, add it under Authentication → Settings → Authorized domains.
+
+Known web limitations (build succeeds, but feature degrades at runtime):
+
+- Bank-slip QR verification (`SlipVerificationService.readQrPayload`) goes through `mobile_scanner`. On web, `image_picker` returns an `XFile` whose `path` is a blob URL, which `MobileScannerController.analyzeImage` cannot decode — the verify-receipt flow will throw. Use cash settlement on web, or fall back to the mobile app.
+- Drift uses `connection_web.dart` (the legacy `package:drift/web.dart` IndexedDB backend) — fine for now because there are no tables, but if Drift is ever adopted, migrate to `drift_flutter` + `sqlite3.wasm`.
 
 ## Known gaps / follow-up
 
