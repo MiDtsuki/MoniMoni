@@ -78,7 +78,15 @@ Every cross-user action (friend request, debt request, settlement request, plus 
 
 `guestSessionProvider` flips the auth-redirect guard. Guest data lives in `SharedPreferences` (`guest_store.dart`) — no Firestore, no Auth. Keep this path working when changing controllers: most of them have a guest branch that must not call Firebase.
 
-## Constraints
+## Conventions
+
+- Treat `CLAUDE.md`, `AGENTS.md`, and `.claude/agents/` as the project memory and prompt-definition surface for deliverables.
+- Keep the app feature-first under `lib/features/<feature>/{application,domain,presentation}` and shared Firebase/session code in `lib/core/`.
+- Route writes to `users`, `user_profiles`, and `username_claims` through `lib/core/firebase/user_records.dart` so identity records stay in sync.
+- Keep Firestore field names aligned with the active schema documented in this file.
+- Preserve the guest-mode split when editing controllers, routing, or profile flows.
+
+## Do Not Do
 
 - Pure Firebase — do not add another backend.
 - Username search stays prefix-based on `username_lower`.

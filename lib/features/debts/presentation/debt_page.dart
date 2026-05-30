@@ -181,7 +181,12 @@ class _GuestDebtNotesPage extends ConsumerWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _SummaryCard(label: 'Lent notes', value: lent, width: width, symbol: symbol),
+                  _SummaryCard(
+                    label: 'Lent notes',
+                    value: lent,
+                    width: width,
+                    symbol: symbol,
+                  ),
                   _SummaryCard(
                     label: 'Borrowed notes',
                     value: borrowed,
@@ -271,7 +276,10 @@ class _GuestDebtNoteCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                CurrencyFormatter.compact(note.amount, ref.watch(currencySymbolProvider)),
+                CurrencyFormatter.compact(
+                  note.amount,
+                  ref.watch(currencySymbolProvider),
+                ),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               IconButton(

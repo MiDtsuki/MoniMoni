@@ -33,7 +33,9 @@ class _DbTestPageState extends State<DbTestPage> {
       final db = AppDatabase();
       final version = db.schemaVersion;
       await db.close();
-      setState(() => _driftStatus = 'OK (schema v$version, SQLite file created)');
+      setState(
+        () => _driftStatus = 'OK (schema v$version, SQLite file created)',
+      );
     } catch (e) {
       setState(() => _driftStatus = 'Error: $e');
     }
@@ -87,14 +89,16 @@ class _StatusRow extends StatelessWidget {
     final color = ok
         ? const Color(0xFF4CAF7D)
         : error
-            ? Colors.red
-            : Colors.grey;
+        ? Colors.red
+        : Colors.grey;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 4),
         Row(
           children: [
@@ -102,13 +106,15 @@ class _StatusRow extends StatelessWidget {
               ok
                   ? Icons.check_circle
                   : error
-                      ? Icons.error
-                      : Icons.circle_outlined,
+                  ? Icons.error
+                  : Icons.circle_outlined,
               color: color,
               size: 18,
             ),
             const SizedBox(width: 8),
-            Expanded(child: Text(value, style: TextStyle(color: color))),
+            Expanded(
+              child: Text(value, style: TextStyle(color: color)),
+            ),
           ],
         ),
       ],

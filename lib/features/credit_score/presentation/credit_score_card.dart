@@ -38,9 +38,10 @@ class _CreditScoreCardState extends State<CreditScoreCard>
       end: widget.score.clamp(0, 100) / 100.0,
     ).animate(CurvedAnimation(parent: _ringCtrl, curve: Curves.easeOutCubic));
 
-    _pulseAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
-    );
+    _pulseAnim = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
 
     _ringCtrl.forward();
   }
@@ -175,8 +176,11 @@ class _CreditScoreCardState extends State<CreditScoreCard>
     final accent = _accent(score);
     final tier = _tier(score);
     final violationRate = ((100 - score) * 0.3).round();
-    final dailyRecovery =
-        score >= 90 ? '+3 pts' : score >= 70 ? '+2 pts' : '+1 pt';
+    final dailyRecovery = score >= 90
+        ? '+3 pts'
+        : score >= 70
+        ? '+2 pts'
+        : '+1 pt';
 
     return AnimatedBuilder(
       animation: Listenable.merge([_ringAnim, _pulseAnim]),
@@ -184,9 +188,7 @@ class _CreditScoreCardState extends State<CreditScoreCard>
         decoration: BoxDecoration(
           color: MoniTheme.surface,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: Color.lerp(MoniTheme.line, accent, 0.45)!,
-          ),
+          border: Border.all(color: Color.lerp(MoniTheme.line, accent, 0.45)!),
           boxShadow: [
             BoxShadow(
               color: accent.withValues(alpha: 0.07 + 0.05 * _pulseAnim.value),
@@ -336,10 +338,7 @@ class _ScoreRing extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                   height: 1.0,
                   shadows: [
-                    Shadow(
-                      color: accent.withValues(alpha: 0.4),
-                      blurRadius: 8,
-                    ),
+                    Shadow(color: accent.withValues(alpha: 0.4), blurRadius: 8),
                   ],
                 ),
               ),
@@ -555,10 +554,7 @@ class _PerkSection extends StatelessWidget {
           child: Icon(icon, size: 15, color: color),
         ),
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text(label, style: Theme.of(context).textTheme.titleMedium),
       ],
     );
   }
@@ -585,10 +581,7 @@ class _PerkRow extends StatelessWidget {
             width: 6,
             height: 6,
             margin: const EdgeInsets.only(right: 10, top: 1),
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           Expanded(
             child: Text(

@@ -469,11 +469,11 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
         ),
       );
     } on FirebaseAuthException catch (e) {
-      debugPrint('sendPasswordResetEmail failed: code=${e.code} message=${e.message}');
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text(_friendlyResetError(e))),
+      debugPrint(
+        'sendPasswordResetEmail failed: code=${e.code} message=${e.message}',
       );
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(_friendlyResetError(e))));
     } catch (e) {
       debugPrint('sendPasswordResetEmail error: $e');
       if (!mounted) return;

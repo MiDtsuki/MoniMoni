@@ -62,11 +62,14 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       }
       if (_userId == null) return;
 
-      final snapshot = await _transactionsRef.orderBy('date', descending: true).get();
-      final rows = snapshot.docs
-          .map((doc) => TransactionModel.fromMap(doc.id, doc.data()))
-          .toList()
-        ..sort((a, b) => b.date.compareTo(a.date));
+      final snapshot = await _transactionsRef
+          .orderBy('date', descending: true)
+          .get();
+      final rows =
+          snapshot.docs
+              .map((doc) => TransactionModel.fromMap(doc.id, doc.data()))
+              .toList()
+            ..sort((a, b) => b.date.compareTo(a.date));
       if (mounted) {
         state = rows;
       }
@@ -116,10 +119,9 @@ class TransactionController extends StateNotifier<List<TransactionModel>> {
       if (_isGuest) {
         await _guestStore.saveTransactions(state);
       } else {
-        await _transactionsRef.doc(transaction.id).set(
-              transaction.toMap(),
-              SetOptions(merge: true),
-            );
+        await _transactionsRef
+            .doc(transaction.id)
+            .set(transaction.toMap(), SetOptions(merge: true));
       }
     } catch (e) {
       if (mounted) {

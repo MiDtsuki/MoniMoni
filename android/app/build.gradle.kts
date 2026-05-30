@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("com.google.firebase.crashlytics")
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
     // END: FlutterFire Configuration

@@ -71,7 +71,8 @@ class InboxPage extends ConsumerWidget {
     final acceptedNotifications = friendsState.acceptedNotifications;
     final debtRequests = debtState.pendingRequests;
     final outgoingDebtRequests = debtState.outgoingRequests;
-    final hasRequests = friendRequests.isNotEmpty ||
+    final hasRequests =
+        friendRequests.isNotEmpty ||
         outgoingFriendRequests.isNotEmpty ||
         acceptedNotifications.isNotEmpty ||
         debtRequests.isNotEmpty ||
@@ -79,11 +80,13 @@ class InboxPage extends ConsumerWidget {
 
     final showFriends =
         filter == InboxFilter.all || filter == InboxFilter.friends;
-    final visibleOutgoingFriendRequests =
-        showFriends ? outgoingFriendRequests : const [];
+    final visibleOutgoingFriendRequests = showFriends
+        ? outgoingFriendRequests
+        : const [];
     final visibleFriendRequests = showFriends ? friendRequests : const [];
-    final visibleAcceptedNotifications =
-        showFriends ? acceptedNotifications : const [];
+    final visibleAcceptedNotifications = showFriends
+        ? acceptedNotifications
+        : const [];
     final visibleOutgoingDebtRequests = outgoingDebtRequests
         .where((r) => _debtRequestMatchesFilter(r, filter))
         .toList();
@@ -91,7 +94,8 @@ class InboxPage extends ConsumerWidget {
         .where((r) => _debtRequestMatchesFilter(r, filter))
         .toList();
 
-    final visibleAny = visibleOutgoingFriendRequests.isNotEmpty ||
+    final visibleAny =
+        visibleOutgoingFriendRequests.isNotEmpty ||
         visibleFriendRequests.isNotEmpty ||
         visibleAcceptedNotifications.isNotEmpty ||
         visibleOutgoingDebtRequests.isNotEmpty ||
@@ -223,8 +227,9 @@ class _FriendAcceptedCardState extends ConsumerState<_FriendAcceptedCard> {
           .dismissAcceptedNotification(widget.notification.id);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -470,8 +475,9 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
           .dismissDebtNotification(widget.request.id);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -492,7 +498,8 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
     );
     final debt = widget.request.debt;
     final isSettlement = widget.request.type == DebtRequestType.settlement;
-    final isNotification = widget.request.type == DebtRequestType.debtAccepted ||
+    final isNotification =
+        widget.request.type == DebtRequestType.debtAccepted ||
         widget.request.type == DebtRequestType.debtDeclined ||
         widget.request.type == DebtRequestType.settlementAccepted;
     final isAcceptedNotification =
@@ -531,8 +538,8 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
                             ? LucideIcons.circleCheck
                             : LucideIcons.circleX
                       : isSettlement
-                          ? LucideIcons.check
-                          : LucideIcons.handCoins,
+                      ? LucideIcons.check
+                      : LucideIcons.handCoins,
                   color: isNotification
                       ? isAcceptedNotification
                             ? MoniTheme.primaryGreen
@@ -603,7 +610,10 @@ class _DebtRequestCardState extends ConsumerState<_DebtRequestCard> {
             if (paymentInfo.isTransfer && paymentInfo.amountInSlip != null)
               _DetailRow(
                 label: 'Verified',
-                value: CurrencyFormatter.compact(paymentInfo.amountInSlip!, symbol),
+                value: CurrencyFormatter.compact(
+                  paymentInfo.amountInSlip!,
+                  symbol,
+                ),
               ),
           ],
           const SizedBox(height: 14),

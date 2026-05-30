@@ -144,7 +144,11 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                             ? 'Income'
                             : 'Expense',
                         onBack: () => context.go('/logs'),
-                        onSave: _saving ? null : () { _save(); },
+                        onSave: _saving
+                            ? null
+                            : () {
+                                _save();
+                              },
                       ),
                     ),
                   ),
@@ -472,9 +476,9 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
     }
   }
 

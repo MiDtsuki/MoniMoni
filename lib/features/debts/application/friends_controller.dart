@@ -14,16 +14,16 @@ import '../domain/friend_model.dart';
 // Firebase Auth re-emits the same user with a new object reference on startup.
 final friendsControllerProvider =
     StateNotifierProvider<FriendsController, FriendsState>((ref) {
-  final isGuest = ref.watch(isGuestModeProvider);
-  if (isGuest) {
-    return FriendsController.guest(ref);
-  }
-  final uid = ref.watch(currentUserProvider.select((u) => u?.uid));
-  if (uid == null) {
-    return FriendsController.guest(ref);
-  }
-  return FriendsController.remote(ref, uid);
-});
+      final isGuest = ref.watch(isGuestModeProvider);
+      if (isGuest) {
+        return FriendsController.guest(ref);
+      }
+      final uid = ref.watch(currentUserProvider.select((u) => u?.uid));
+      if (uid == null) {
+        return FriendsController.guest(ref);
+      }
+      return FriendsController.remote(ref, uid);
+    });
 
 class FriendsState {
   const FriendsState({
@@ -59,14 +59,14 @@ class FriendsState {
 
 class FriendsController extends StateNotifier<FriendsState> {
   FriendsController.remote(this._ref, this._userId)
-      : super(const FriendsState(friends: [], requests: [])) {
+    : super(const FriendsState(friends: [], requests: [])) {
     _load();
     _subscribeToRemoteChanges();
   }
 
   FriendsController.guest(this._ref)
-      : _userId = null,
-        super(const FriendsState(friends: [], requests: []));
+    : _userId = null,
+      super(const FriendsState(friends: [], requests: []));
 
   final Ref _ref;
   final String? _userId;
@@ -96,8 +96,7 @@ class FriendsController extends StateNotifier<FriendsState> {
       final friends = await _buildFriends(snapshot.docs);
       // Don't apply an empty cache result — it's stale and would wipe out
       // friends that are already loaded from the server.
-      final isEmptyCache =
-          friends.isEmpty && snapshot.metadata.isFromCache;
+      final isEmptyCache = friends.isEmpty && snapshot.metadata.isFromCache;
       if (mounted && gen == _friendsGeneration && !isEmptyCache) {
         state = state.copyWith(friends: friends);
       }
@@ -120,49 +119,53 @@ class FriendsController extends StateNotifier<FriendsState> {
           .where('recipient_id', isEqualTo: userId)
           .snapshots()
           .listen(
-        (snapshot) {
-          final requestDocs = snapshot.docs.where((doc) {
-            final data = doc.data();
-            return data['type'] == 'friend_request' &&
-                data['status'] == 'pending';
-          }).toList();
+            (snapshot) {
+              final requestDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request' &&
+                    data['status'] == 'pending';
+              }).toList();
 
-          final acceptedDocs = snapshot.docs.where((doc) {
-            final data = doc.data();
-            return data['type'] == 'friend_request_accepted' &&
-                data['status'] == 'pending';
-          }).toList();
+              final acceptedDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request_accepted' &&
+                    data['status'] == 'pending';
+              }).toList();
 
-          final gen = ++_requestsGeneration;
-          Future.wait([
-            _buildRequests(requestDocs, counterpartField: 'sender_id'),
-            _buildRequests(acceptedDocs, counterpartField: 'sender_id'),
-          ]).then((results) {
-            if (mounted && gen == _requestsGeneration) {
-              // Immediately merge accepted-notification senders into friends
-              // so User A sees the new friend as soon as the notification
-              // arrives — mirrors the local-state update in acceptFriendRequest.
-              final existingIds = state.friends.map((f) => f.id).toSet();
-              final newFriends = results[1]
-                  .where((n) => !existingIds.contains(n.user.id))
-                  .map((n) => n.user)
-                  .toList();
-              state = state.copyWith(
-                requests: results[0],
-                acceptedNotifications: results[1],
-                friends: newFriends.isEmpty
-                    ? null
-                    : [...state.friends, ...newFriends],
-              );
-              if (results[1].isNotEmpty) _loadFriends();
-            }
-          }).catchError((Object e) {
-            debugPrint('FriendsController requests update failed: $e');
-          });
-        },
-        onError: (Object e) =>
-            debugPrint('FriendsController inbox stream error: $e'),
-      ),
+              final gen = ++_requestsGeneration;
+              Future.wait([
+                    _buildRequests(requestDocs, counterpartField: 'sender_id'),
+                    _buildRequests(acceptedDocs, counterpartField: 'sender_id'),
+                  ])
+                  .then((results) {
+                    if (mounted && gen == _requestsGeneration) {
+                      // Immediately merge accepted-notification senders into friends
+                      // so User A sees the new friend as soon as the notification
+                      // arrives — mirrors the local-state update in acceptFriendRequest.
+                      final existingIds = state.friends
+                          .map((f) => f.id)
+                          .toSet();
+                      final newFriends = results[1]
+                          .where((n) => !existingIds.contains(n.user.id))
+                          .map((n) => n.user)
+                          .toList();
+                      state = state.copyWith(
+                        requests: results[0],
+                        acceptedNotifications: results[1],
+                        friends: newFriends.isEmpty
+                            ? null
+                            : [...state.friends, ...newFriends],
+                      );
+                      if (results[1].isNotEmpty) _loadFriends();
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController requests update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController inbox stream error: $e'),
+          ),
     );
 
     // Friendships stream — fires for both sides whenever a friendship document
@@ -177,29 +180,31 @@ class FriendsController extends StateNotifier<FriendsState> {
           .where('sender_id', isEqualTo: userId)
           .snapshots()
           .listen(
-        (snapshot) {
-          final outgoingDocs = snapshot.docs.where((doc) {
-            final data = doc.data();
-            return data['type'] == 'friend_request' &&
-                data['status'] == 'pending';
-          }).toList();
+            (snapshot) {
+              final outgoingDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request' &&
+                    data['status'] == 'pending';
+              }).toList();
 
-          final gen = ++_requestsGeneration;
-          _buildRequests(
-            outgoingDocs,
-            counterpartField: 'recipient_id',
-            isOutgoing: true,
-          ).then((requests) {
-            if (mounted && gen == _requestsGeneration) {
-              state = state.copyWith(outgoingRequests: requests);
-            }
-          }).catchError((Object e) {
-            debugPrint('FriendsController outgoing update failed: $e');
-          });
-        },
-        onError: (Object e) =>
-            debugPrint('FriendsController outgoing stream error: $e'),
-      ),
+              final gen = ++_requestsGeneration;
+              _buildRequests(
+                    outgoingDocs,
+                    counterpartField: 'recipient_id',
+                    isOutgoing: true,
+                  )
+                  .then((requests) {
+                    if (mounted && gen == _requestsGeneration) {
+                      state = state.copyWith(outgoingRequests: requests);
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController outgoing update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController outgoing stream error: $e'),
+          ),
     );
 
     _subscriptions.add(
@@ -208,20 +213,24 @@ class FriendsController extends StateNotifier<FriendsState> {
           .where('participants', arrayContains: userId)
           .snapshots()
           .listen(
-        (snapshot) {
-          if (snapshot.docs.isEmpty && snapshot.metadata.isFromCache) return;
-          final gen = ++_friendsGeneration;
-          _buildFriends(snapshot.docs).then((friends) {
-            if (mounted && gen == _friendsGeneration) {
-              state = state.copyWith(friends: friends);
-            }
-          }).catchError((Object e) {
-            debugPrint('FriendsController friends update failed: $e');
-          });
-        },
-        onError: (Object e) =>
-            debugPrint('FriendsController friendships stream error: $e'),
-      ),
+            (snapshot) {
+              if (snapshot.docs.isEmpty && snapshot.metadata.isFromCache) {
+                return;
+              }
+              final gen = ++_friendsGeneration;
+              _buildFriends(snapshot.docs)
+                  .then((friends) {
+                    if (mounted && gen == _friendsGeneration) {
+                      state = state.copyWith(friends: friends);
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController friends update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController friendships stream error: $e'),
+          ),
     );
   }
 
@@ -241,8 +250,7 @@ class FriendsController extends StateNotifier<FriendsState> {
           .where('participants', arrayContains: userId)
           .get();
       final friends = await _buildFriends(snapshot.docs);
-      final isEmptyCache =
-          friends.isEmpty && snapshot.metadata.isFromCache;
+      final isEmptyCache = friends.isEmpty && snapshot.metadata.isFromCache;
       if (mounted && !isEmptyCache) {
         state = state.copyWith(friends: friends);
       }
@@ -260,8 +268,7 @@ class FriendsController extends StateNotifier<FriendsState> {
           .get();
       final requestDocs = snapshot.docs.where((doc) {
         final data = doc.data();
-        return data['type'] == 'friend_request' &&
-            data['status'] == 'pending';
+        return data['type'] == 'friend_request' && data['status'] == 'pending';
       }).toList();
       final acceptedDocs = snapshot.docs.where((doc) {
         final data = doc.data();
@@ -274,8 +281,7 @@ class FriendsController extends StateNotifier<FriendsState> {
           .get();
       final outgoingRequestDocs = outgoingDocs.docs.where((doc) {
         final data = doc.data();
-        return data['type'] == 'friend_request' &&
-            data['status'] == 'pending';
+        return data['type'] == 'friend_request' && data['status'] == 'pending';
       }).toList();
       final requests = await _buildRequests(
         requestDocs,
@@ -366,14 +372,13 @@ class FriendsController extends StateNotifier<FriendsState> {
       if (userId == null) return [];
       final friendIds = state.friends.map((f) => f.id).toSet();
       final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
-      final outgoingIds =
-          state.outgoingRequests.map((r) => r.user.id).toSet();
+      final outgoingIds = state.outgoingRequests.map((r) => r.user.id).toSet();
 
       final rows = await _db
           .collection(userProfilesCollection)
           .orderBy('username_lower')
           .startAt([query])
-          .endAt(['${query}\uf8ff'])
+          .endAt(['$query\uf8ff'])
           .limit(10)
           .get();
 
@@ -444,22 +449,19 @@ class FriendsController extends StateNotifier<FriendsState> {
   Future<void> acceptFriendRequest(String requestId) async {
     final userId = _userId;
     if (userId == null) return;
-    final request =
-        state.requests.where((item) => item.id == requestId).firstOrNull;
+    final request = state.requests
+        .where((item) => item.id == requestId)
+        .firstOrNull;
     if (request == null) return;
 
     final notificationRef = _db.collection('inbox_items').doc();
     final batch = _db.batch();
 
+    batch.set(_db.collection('inbox_items').doc(requestId), {
+      'status': 'accepted',
+    }, SetOptions(merge: true));
     batch.set(
-      _db.collection('inbox_items').doc(requestId),
-      {'status': 'accepted'},
-      SetOptions(merge: true),
-    );
-    batch.set(
-      _db
-          .collection('friendships')
-          .doc(_friendshipId(userId, request.user.id)),
+      _db.collection('friendships').doc(_friendshipId(userId, request.user.id)),
       {
         'participants': [userId, request.user.id]..sort(),
         // Required by firestore.rules: the rule reads this inbox doc via
@@ -492,18 +494,16 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<void> dismissAcceptedNotification(String notificationId) async {
-    await _db.collection('inbox_items').doc(notificationId).set(
-      {'status': 'dismissed'},
-      SetOptions(merge: true),
-    );
+    await _db.collection('inbox_items').doc(notificationId).set({
+      'status': 'dismissed',
+    }, SetOptions(merge: true));
     // inbox_items stream removes the dismissed notification from `acceptedNotifications`
   }
 
   Future<void> declineFriendRequest(String requestId) async {
-    await _db.collection('inbox_items').doc(requestId).set(
-      {'status': 'declined'},
-      SetOptions(merge: true),
-    );
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'declined',
+    }, SetOptions(merge: true));
     // inbox_items stream removes the declined request from `requests`
   }
 
@@ -546,4 +546,3 @@ class FriendsController extends StateNotifier<FriendsState> {
     super.dispose();
   }
 }
-

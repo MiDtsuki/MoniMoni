@@ -148,10 +148,7 @@ class MoniShell extends ConsumerWidget {
         child: NavigationBar(
           selectedIndex: navigationShell.currentIndex,
           onDestinationSelected: (index) {
-            navigationShell.goBranch(
-              index,
-              initialLocation: true,
-            );
+            navigationShell.goBranch(index, initialLocation: true);
           },
           destinations: [
             const NavigationDestination(

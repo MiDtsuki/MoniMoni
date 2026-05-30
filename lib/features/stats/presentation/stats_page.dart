@@ -236,7 +236,10 @@ class _MonthBar extends StatelessWidget {
               onTap: onTapMonth,
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -691,11 +694,11 @@ class _MonthPickerState extends State<_MonthPicker> {
               return OutlinedButton(
                 onPressed: () => setState(() => _month = month),
                 style: OutlinedButton.styleFrom(
-                  backgroundColor:
-                      selected ? MoniTheme.softGreen : Colors.white,
+                  backgroundColor: selected
+                      ? MoniTheme.softGreen
+                      : Colors.white,
                   side: BorderSide(
-                    color:
-                        selected ? MoniTheme.primaryGreen : MoniTheme.line,
+                    color: selected ? MoniTheme.primaryGreen : MoniTheme.line,
                   ),
                 ),
                 child: Text(DateFormat.MMM().format(DateTime(_year, month))),
@@ -704,8 +707,7 @@ class _MonthPickerState extends State<_MonthPicker> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: () =>
-                Navigator.of(context).pop(DateTime(_year, _month)),
+            onPressed: () => Navigator.of(context).pop(DateTime(_year, _month)),
             child: const Text('Apply'),
           ),
         ],

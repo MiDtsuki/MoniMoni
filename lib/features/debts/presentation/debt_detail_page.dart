@@ -50,7 +50,8 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
   }
 
   Future<void> _settleAll(String friendId, double amount) async {
-    final friendName = ref
+    final friendName =
+        ref
             .read(friendsControllerProvider)
             .friends
             .where((f) => f.id == friendId)
@@ -172,9 +173,24 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    _MetricCard(label: 'Lent to friend', value: lent, width: width, symbol: symbol),
-                    _MetricCard(label: 'Borrowed from friend', value: borrowed, width: width, symbol: symbol),
-                    _MetricCard(label: 'Final net amount', value: net, width: width, symbol: symbol),
+                    _MetricCard(
+                      label: 'Lent to friend',
+                      value: lent,
+                      width: width,
+                      symbol: symbol,
+                    ),
+                    _MetricCard(
+                      label: 'Borrowed from friend',
+                      value: borrowed,
+                      width: width,
+                      symbol: symbol,
+                    ),
+                    _MetricCard(
+                      label: 'Final net amount',
+                      value: net,
+                      width: width,
+                      symbol: symbol,
+                    ),
                   ],
                 );
               },
@@ -326,7 +342,9 @@ class _SettlementPaymentSheetState extends State<_SettlementPaymentSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 6),
-            Text('Amount ${CurrencyFormatter.compact(widget.amount, widget.symbol)}'),
+            Text(
+              'Amount ${CurrencyFormatter.compact(widget.amount, widget.symbol)}',
+            ),
             const SizedBox(height: 16),
             SegmentedButton<SettlementPaymentMethod>(
               segments: const [
@@ -387,7 +405,10 @@ class _SettlementPaymentSheetState extends State<_SettlementPaymentSheet> {
               ),
               if (_verifiedTransfer != null) ...[
                 const SizedBox(height: 10),
-                _VerifiedTransferSummary(info: _verifiedTransfer!, symbol: widget.symbol),
+                _VerifiedTransferSummary(
+                  info: _verifiedTransfer!,
+                  symbol: widget.symbol,
+                ),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 10),
@@ -467,7 +488,11 @@ class _VerifiedTransferSummary extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        Chip(label: Text(CurrencyFormatter.compact(info.amountInSlip ?? 0, symbol))),
+        Chip(
+          label: Text(
+            CurrencyFormatter.compact(info.amountInSlip ?? 0, symbol),
+          ),
+        ),
         if (info.bankShortName != null) Chip(label: Text(info.bankShortName!)),
         if (info.transactionRef != null)
           Chip(label: Text('Ref ${info.transactionRef!}')),

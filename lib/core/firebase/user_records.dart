@@ -20,11 +20,13 @@ String suggestUsername(String value, {String fallback = 'profile'}) {
     return candidate;
   }
 
-  final fallbackSanitized = fallback
-      .trim()
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9_]'), '_');
-  final safeFallback = fallbackSanitized.isEmpty ? 'profile' : fallbackSanitized;
+  final fallbackSanitized = fallback.trim().toLowerCase().replaceAll(
+    RegExp(r'[^a-z0-9_]'),
+    '_',
+  );
+  final safeFallback = fallbackSanitized.isEmpty
+      ? 'profile'
+      : fallbackSanitized;
   final fallbackCandidate = safeFallback.length > 20
       ? safeFallback.substring(0, 20)
       : safeFallback;
@@ -144,9 +146,7 @@ Future<void> ensureAccountRecords({
       });
     } else if ((userSnapshot.data()?['full_name'] as String?)?.trim().isEmpty ??
         true) {
-      tx.set(userRef, {
-        'full_name': fullName,
-      }, SetOptions(merge: true));
+      tx.set(userRef, {'full_name': fullName}, SetOptions(merge: true));
     }
 
     if (!profileSnapshot.exists) {
@@ -173,13 +173,17 @@ Future<void> ensureAccountRecords({
           currentDisplayNameLower.trim() != normalizedUsername) {
         patch['display_name_lower'] = normalizedUsername;
       }
-      if ((profileData['username'] as String?)?.trim().isEmpty ?? true ||
-          (profileData['username'] as String?)?.trim() != normalizedUsername) {
+      final currentUsername = (profileData['username'] as String?)?.trim();
+      if (currentUsername == null ||
+          currentUsername.isEmpty ||
+          currentUsername != normalizedUsername) {
         patch['username'] = normalizedUsername;
       }
-      if ((profileData['username_lower'] as String?)?.trim().isEmpty ?? true ||
-          (profileData['username_lower'] as String?)?.trim() !=
-              normalizedUsername) {
+      final currentUsernameLower = (profileData['username_lower'] as String?)
+          ?.trim();
+      if (currentUsernameLower == null ||
+          currentUsernameLower.isEmpty ||
+          currentUsernameLower != normalizedUsername) {
         patch['username_lower'] = normalizedUsername;
       }
       if (patch.isNotEmpty) {

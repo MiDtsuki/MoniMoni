@@ -39,10 +39,7 @@ class FriendRequestModel {
   final FriendRequestStatus status;
   final bool isOutgoing;
 
-  FriendRequestModel copyWith({
-    FriendRequestStatus? status,
-    bool? isOutgoing,
-  }) {
+  FriendRequestModel copyWith({FriendRequestStatus? status, bool? isOutgoing}) {
     return FriendRequestModel(
       id: id,
       user: user,

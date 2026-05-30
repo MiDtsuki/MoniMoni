@@ -45,11 +45,9 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
     final creditScore = ref.watch(profileSettingsProvider).creditScore;
 
     if (friends.isNotEmpty && _friendId == null) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) {
-          if (mounted) setState(() => _friendId = friends.first.id);
-        },
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _friendId = friends.first.id);
+      });
     }
 
     return Scaffold(
@@ -63,121 +61,120 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
         child: creditScore < _kMinCreditScore
             ? _CreditBlockedBody(score: creditScore)
             : friends.isEmpty
-                ? const EmptyState(
-                    title: 'Add a friend first',
-                    message:
-                        'Debt transactions can only be created with existing friends.',
-                    icon: LucideIcons.userRoundPlus,
-                  )
-                : MoniCard(
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SegmentedButton<DebtDirection>(
-                            segments: const [
-                              ButtonSegment(
-                                value: DebtDirection.owedToMe,
-                                label: Text('Lend'),
-                              ),
-                              ButtonSegment(
-                                value: DebtDirection.iOwe,
-                                label: Text('Borrow'),
-                              ),
-                            ],
-                            selected: {_direction},
-                            onSelectionChanged: (value) {
-                              setState(() => _direction = value.first);
-                            },
+            ? const EmptyState(
+                title: 'Add a friend first',
+                message:
+                    'Debt transactions can only be created with existing friends.',
+                icon: LucideIcons.userRoundPlus,
+              )
+            : MoniCard(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SegmentedButton<DebtDirection>(
+                        segments: const [
+                          ButtonSegment(
+                            value: DebtDirection.owedToMe,
+                            label: Text('Lend'),
                           ),
-                          const SizedBox(height: 16),
-                          DropdownButtonFormField<String>(
-                            value: _friendId, // ignore: deprecated_member_use
-                            items: [
-                              for (final friend in friends)
-                                DropdownMenuItem(
-                                  value: friend.id,
-                                  child: Text(friend.username),
-                                ),
-                            ],
-                            onChanged: (value) =>
-                                setState(() => _friendId = value),
-                            decoration: const InputDecoration(
-                              labelText: 'Friend',
-                              prefixIcon: Icon(LucideIcons.userRound),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _PickerField(
-                            label: 'Time',
-                            value: DateFormat(
-                              'MMM d, yyyy h:mm a',
-                            ).format(_createdAt),
-                            icon: LucideIcons.calendarClock,
-                            onTap: _pickCreatedAt,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _amountController,
-                            decoration: const InputDecoration(
-                              labelText: 'Amount',
-                              prefixIcon: Icon(LucideIcons.circleDollarSign),
-                            ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'^\d*\.?\d{0,2}'),
-                              ),
-                            ],
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Enter the debt amount';
-                              }
-                              final amount = double.tryParse(value);
-                              if (amount == null || amount <= 0) {
-                                return 'Amount must be greater than zero';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          _PickerField(
-                            label: 'Deadline',
-                            value: DateFormat('MMM d, yyyy').format(_deadline),
-                            icon: LucideIcons.calendar,
-                            onTap: _pickDeadline,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _noteController,
-                            minLines: 3,
-                            maxLines: 5,
-                            decoration: const InputDecoration(
-                              labelText: 'Note',
-                              alignLabelWithHint: true,
-                              prefixIcon: Icon(LucideIcons.receiptText),
-                            ),
-                          ),
-                          const SizedBox(height: 22),
-                          ElevatedButton(
-                            onPressed: _saving ? null : _save,
-                            child: _saving
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Text('Send request'),
+                          ButtonSegment(
+                            value: DebtDirection.iOwe,
+                            label: Text('Borrow'),
                           ),
                         ],
+                        selected: {_direction},
+                        onSelectionChanged: (value) {
+                          setState(() => _direction = value.first);
+                        },
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _friendId, // ignore: deprecated_member_use
+                        items: [
+                          for (final friend in friends)
+                            DropdownMenuItem(
+                              value: friend.id,
+                              child: Text(friend.username),
+                            ),
+                        ],
+                        onChanged: (value) => setState(() => _friendId = value),
+                        decoration: const InputDecoration(
+                          labelText: 'Friend',
+                          prefixIcon: Icon(LucideIcons.userRound),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _PickerField(
+                        label: 'Time',
+                        value: DateFormat(
+                          'MMM d, yyyy h:mm a',
+                        ).format(_createdAt),
+                        icon: LucideIcons.calendarClock,
+                        onTap: _pickCreatedAt,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _amountController,
+                        decoration: const InputDecoration(
+                          labelText: 'Amount',
+                          prefixIcon: Icon(LucideIcons.circleDollarSign),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d{0,2}'),
+                          ),
+                        ],
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter the debt amount';
+                          }
+                          final amount = double.tryParse(value);
+                          if (amount == null || amount <= 0) {
+                            return 'Amount must be greater than zero';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _PickerField(
+                        label: 'Deadline',
+                        value: DateFormat('MMM d, yyyy').format(_deadline),
+                        icon: LucideIcons.calendar,
+                        onTap: _pickDeadline,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _noteController,
+                        minLines: 3,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          labelText: 'Note',
+                          alignLabelWithHint: true,
+                          prefixIcon: Icon(LucideIcons.receiptText),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      ElevatedButton(
+                        onPressed: _saving ? null : _save,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Send request'),
+                      ),
+                    ],
                   ),
+                ),
+              ),
       ),
     );
   }
@@ -222,13 +219,16 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
     if (!_formKey.currentState!.validate()) return;
     final friendId = _friendId;
     if (friendId == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Select a friend first')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select a friend first')));
       return;
     }
     setState(() => _saving = true);
     try {
-      await ref.read(debtControllerProvider.notifier).createDebtRequest(
+      await ref
+          .read(debtControllerProvider.notifier)
+          .createDebtRequest(
             friendId: friendId,
             amount: double.parse(_amountController.text),
             direction: _direction,
@@ -239,8 +239,9 @@ class _DebtFormPageState extends ConsumerState<DebtFormPage> {
       if (mounted) context.go('/debts');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Could not send request: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not send request: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -281,8 +282,11 @@ class _CreditBlockedBody extends StatelessWidget {
                   Container(width: 5, color: const Color(0xFFEF4444)),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    child: Icon(LucideIcons.shieldAlert,
-                        color: Color(0xFFEF4444), size: 22),
+                    child: Icon(
+                      LucideIcons.shieldAlert,
+                      color: Color(0xFFEF4444),
+                      size: 22,
+                    ),
                   ),
                   Expanded(
                     child: Padding(
@@ -316,8 +320,10 @@ class _CreditBlockedBody extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          Text('How to recover',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'How to recover',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 12),
           const _RecoveryTask(
             icon: LucideIcons.circleAlert,
@@ -383,13 +389,18 @@ class _RecoveryTask extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title,
-                  style: const TextStyle(fontWeight: FontWeight.w600,
-                      fontSize: 13)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(description,
-                  style: const TextStyle(
-                      fontSize: 12, color: Color(0xFF6B7280))),
+              Text(
+                description,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+              ),
             ],
           ),
         ),
@@ -400,11 +411,14 @@ class _RecoveryTask extends StatelessWidget {
             color: badgeColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(badge,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: badgeColor)),
+          child: Text(
+            badge,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: badgeColor,
+            ),
+          ),
         ),
       ],
     );

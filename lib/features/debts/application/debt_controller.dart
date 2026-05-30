@@ -118,10 +118,11 @@ class DebtController extends StateNotifier<DebtState> {
           .where('participants', arrayContains: userId)
           .get();
 
-      final debts = debtSnapshot.docs
-          .map((doc) => DebtModel.fromMap(doc.id, doc.data(), userId))
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final debts =
+          debtSnapshot.docs
+              .map((doc) => DebtModel.fromMap(doc.id, doc.data(), userId))
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final debtsById = {for (final d in debts) d.id: d};
 
       // Single-field query avoids composite index requirements. Status and type
@@ -145,9 +146,10 @@ class DebtController extends StateNotifier<DebtState> {
           continue;
         }
 
-        final payload = (data['payload'] as Map<String, dynamic>? ??
-                const <String, dynamic>{})
-            .cast<String, dynamic>();
+        final payload =
+            (data['payload'] as Map<String, dynamic>? ??
+                    const <String, dynamic>{})
+                .cast<String, dynamic>();
         final senderId = data['sender_id'] as String? ?? '';
         final createdAt = _readDate(data['created_at']);
 
@@ -168,8 +170,8 @@ class DebtController extends StateNotifier<DebtState> {
             ),
           );
         } else if (type == 'settlement_request') {
-          final debtIds =
-              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
+          final debtIds = (payload['debt_ids'] as List<dynamic>? ?? [])
+              .cast<String>();
           requests.add(
             DebtRequestModel(
               id: doc.id,
@@ -190,8 +192,8 @@ class DebtController extends StateNotifier<DebtState> {
           );
         } else if (type == 'settlement_accepted') {
           // Acknowledgement back to the original settlement-request sender.
-          final debtIds =
-              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
+          final debtIds = (payload['debt_ids'] as List<dynamic>? ?? [])
+              .cast<String>();
           requests.add(
             DebtRequestModel(
               id: doc.id,
@@ -243,9 +245,10 @@ class DebtController extends StateNotifier<DebtState> {
           continue;
         }
 
-        final payload = (data['payload'] as Map<String, dynamic>? ??
-                const <String, dynamic>{})
-            .cast<String, dynamic>();
+        final payload =
+            (data['payload'] as Map<String, dynamic>? ??
+                    const <String, dynamic>{})
+                .cast<String, dynamic>();
         final recipientId = data['recipient_id'] as String? ?? '';
         final createdAt = _readDate(data['created_at']);
 
@@ -258,7 +261,9 @@ class DebtController extends StateNotifier<DebtState> {
               type: DebtRequestType.debt,
               friendId: recipientId,
               createdAt: createdAt,
-              title: debt?.isLent == true ? 'Lend request sent' : 'Borrow request sent',
+              title: debt?.isLent == true
+                  ? 'Lend request sent'
+                  : 'Borrow request sent',
               description: debt?.isLent == true
                   ? 'Waiting for your friend to approve the money you lent.'
                   : 'Waiting for your friend to approve the money you borrowed.',
@@ -267,8 +272,8 @@ class DebtController extends StateNotifier<DebtState> {
             ),
           );
         } else {
-          final debtIds =
-              (payload['debt_ids'] as List<dynamic>? ?? []).cast<String>();
+          final debtIds = (payload['debt_ids'] as List<dynamic>? ?? [])
+              .cast<String>();
           outgoingRequests.add(
             DebtRequestModel(
               id: doc.id,
@@ -375,35 +380,30 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> acceptDebtRequest(String requestId) async {
-    final request =
-        state.requests.where((item) => item.id == requestId).firstOrNull;
+    final request = state.requests
+        .where((item) => item.id == requestId)
+        .firstOrNull;
     if (request == null) return;
     final debt = request.debt;
     if (debt == null) return;
 
     // Atomically activate the debt, close the inbox item, and notify the sender.
     final batch = _db.batch();
-    batch.set(
-      _db.collection('debts').doc(debt.id),
-      {'status': 'active', 'updated_at': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
-    );
-    batch.set(
-      _db.collection('inbox_items').doc(requestId),
-      {'status': 'accepted'},
-      SetOptions(merge: true),
-    );
-    batch.set(
-      _db.collection('inbox_items').doc(),
-      {
-        'recipient_id': debt.friendId,
-        'sender_id': _userId!,
-        'type': 'debt_accepted',
-        'payload': {'debt_id': debt.id},
-        'status': 'pending',
-        'created_at': FieldValue.serverTimestamp(),
-      },
-    );
+    batch.set(_db.collection('debts').doc(debt.id), {
+      'status': 'active',
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(_db.collection('inbox_items').doc(requestId), {
+      'status': 'accepted',
+    }, SetOptions(merge: true));
+    batch.set(_db.collection('inbox_items').doc(), {
+      'recipient_id': debt.friendId,
+      'sender_id': _userId!,
+      'type': 'debt_accepted',
+      'payload': {'debt_id': debt.id},
+      'status': 'pending',
+      'created_at': FieldValue.serverTimestamp(),
+    });
     await batch.commit();
 
     if (mounted) {
@@ -418,30 +418,26 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> declineDebtRequest(String requestId) async {
-    final request =
-        state.requests.where((item) => item.id == requestId).firstOrNull;
+    final request = state.requests
+        .where((item) => item.id == requestId)
+        .firstOrNull;
     final debt = request?.debt;
 
     // Atomically close the inbox item, delete the debt, and notify the sender.
     final batch = _db.batch();
-    batch.set(
-      _db.collection('inbox_items').doc(requestId),
-      {'status': 'declined'},
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('inbox_items').doc(requestId), {
+      'status': 'declined',
+    }, SetOptions(merge: true));
     if (debt != null) {
       batch.delete(_db.collection('debts').doc(debt.id));
-      batch.set(
-        _db.collection('inbox_items').doc(),
-        {
-          'recipient_id': debt.friendId,
-          'sender_id': _userId!,
-          'type': 'debt_declined',
-          'payload': {'debt_id': debt.id},
-          'status': 'pending',
-          'created_at': FieldValue.serverTimestamp(),
-        },
-      );
+      batch.set(_db.collection('inbox_items').doc(), {
+        'recipient_id': debt.friendId,
+        'sender_id': _userId!,
+        'type': 'debt_declined',
+        'payload': {'debt_id': debt.id},
+        'status': 'pending',
+        'created_at': FieldValue.serverTimestamp(),
+      });
     }
     await batch.commit();
 
@@ -456,10 +452,9 @@ class DebtController extends StateNotifier<DebtState> {
   }
 
   Future<void> dismissDebtNotification(String requestId) async {
-    await _db.collection('inbox_items').doc(requestId).set(
-      {'status': 'dismissed'},
-      SetOptions(merge: true),
-    );
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'dismissed',
+    }, SetOptions(merge: true));
     if (mounted) {
       state = state.copyWith(
         requests: state.requests.where((item) => item.id != requestId).toList(),
@@ -471,8 +466,7 @@ class DebtController extends StateNotifier<DebtState> {
     String debtId, {
     SettlementPaymentInfo paymentInfo = const SettlementPaymentInfo.cash(),
   }) async {
-    final debt =
-        state.debts.where((item) => item.id == debtId).firstOrNull;
+    final debt = state.debts.where((item) => item.id == debtId).firstOrNull;
     if (debt == null) return;
     await _db.collection('inbox_items').add({
       'recipient_id': debt.friendId,
@@ -545,8 +539,9 @@ class DebtController extends StateNotifier<DebtState> {
 
   Future<void> acceptSettlementRequest(String requestId) async {
     await _retryUnavailable(() async {
-      final request =
-          state.requests.where((item) => item.id == requestId).firstOrNull;
+      final request = state.requests
+          .where((item) => item.id == requestId)
+          .firstOrNull;
       if (request == null) return;
       final targetIds = request.debtIds.toSet().toList();
       final settledAt = DateTime.now().toUtc();
@@ -566,17 +561,14 @@ class DebtController extends StateNotifier<DebtState> {
               {'status': 'accepted'},
               SetOptions(merge: true),
             );
-            batch.set(
-              _db.collection('inbox_items').doc(),
-              {
-                'recipient_id': senderId,
-                'sender_id': _userId!,
-                'type': 'settlement_accepted',
-                'payload': {'debt_ids': targetIds},
-                'status': 'pending',
-                'created_at': FieldValue.serverTimestamp(),
-              },
-            );
+            batch.set(_db.collection('inbox_items').doc(), {
+              'recipient_id': senderId,
+              'sender_id': _userId!,
+              'type': 'settlement_accepted',
+              'payload': {'debt_ids': targetIds},
+              'status': 'pending',
+              'created_at': FieldValue.serverTimestamp(),
+            });
           },
         ),
       );
@@ -589,7 +581,9 @@ class DebtController extends StateNotifier<DebtState> {
                   ? d.copyWith(status: DebtStatus.settled, settledAt: settledAt)
                   : d,
           ],
-          requests: state.requests.where((item) => item.id != requestId).toList(),
+          requests: state.requests
+              .where((item) => item.id != requestId)
+              .toList(),
         );
       }
       _ref.read(profileSettingsProvider.notifier).refresh();
@@ -694,8 +688,8 @@ class DebtController extends StateNotifier<DebtState> {
       if (!snapshot.exists) continue;
 
       final data = snapshot.data()!;
-      final participants =
-          (data['participants'] as List<dynamic>? ?? const []).cast<String>();
+      final participants = (data['participants'] as List<dynamic>? ?? const [])
+          .cast<String>();
       if (!participants.contains(userId)) continue;
       if ((data['status'] as String? ?? '') == 'settled') continue;
 

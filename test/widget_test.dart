@@ -6,9 +6,7 @@ import 'package:moni/features/auth/presentation/login_page.dart';
 void main() {
   testWidgets('login page renders', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: LoginPage()),
-      ),
+      const ProviderScope(child: MaterialApp(home: LoginPage())),
     );
     await tester.pump();
 
@@ -21,11 +19,12 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: LoginPage()),
-      ),
+      const ProviderScope(child: MaterialApp(home: LoginPage())),
     );
-    await tester.enterText(find.widgetWithText(TextFormField, 'Email'), 'user@example.com');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email'),
+      'user@example.com',
+    );
     await tester.tap(find.text('Forgot password?'));
     await tester.pumpAndSettle();
 
