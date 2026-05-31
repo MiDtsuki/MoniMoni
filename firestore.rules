@@ -1,0 +1,374 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isParticipant(data) {
+      return signedIn() &&
+        data.participants is list &&
+        request.auth.uid in data.participants;
+    }
+
+    function isInboxParty(data) {
+      return signedIn() &&
+        (
+          request.auth.uid == data.recipient_id ||
+          request.auth.uid == data.sender_id
+        );
+    }
+
+    function validUsername(username) {
+      return username is string &&
+        username.matches('^[a-z0-9_]{3,20}$');
+    }
+
+    function validUserCreateData() {
+      return request.resource.data.keys().hasOnly([
+          'email',
+          'full_name',
+          'currency',
+          'credit_score',
+          'created_at',
+        ]) &&
+        request.resource.data.email is string &&
+        request.resource.data.full_name is string &&
+        request.resource.data.currency is string &&
+        request.resource.data.credit_score == 100;
+    }
+
+    function validUserUpdateData() {
+      return request.resource.data.keys().hasOnly([
+          'email',
+          'full_name',
+          'currency',
+          'credit_score',
+          'created_at',
+        ]) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'currency',
+          'full_name',
+        ]) &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.credit_score == resource.data.credit_score &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.full_name is string &&
+        request.resource.data.currency is string;
+    }
+
+    function validProfileData() {
+      return request.resource.data.keys().hasOnly([
+          'display_name',
+          'display_name_lower',
+          'username',
+          'username_lower',
+          'created_at',
+        ]) &&
+        request.resource.data.display_name is string &&
+        request.resource.data.display_name_lower is string &&
+        request.resource.data.username is string &&
+        request.resource.data.username_lower is string &&
+        request.resource.data.username ==
+          request.resource.data.username_lower &&
+        validUsername(request.resource.data.username_lower);
+    }
+
+    function ownsUsernameClaim() {
+      return existsAfter(
+          /databases/$(database)/documents/username_claims/$(request.resource.data.username_lower)
+        ) &&
+        getAfter(
+            /databases/$(database)/documents/username_claims/$(request.resource.data.username_lower)
+          ).data.owner_uid == request.auth.uid;
+    }
+
+    function validFriendshipData() {
+      return request.resource.data.keys().hasOnly([
+          'participants',
+          'inbox_request_id',
+          'created_at',
+        ]) &&
+        request.resource.data.participants is list &&
+        request.resource.data.participants.size() == 2 &&
+        request.resource.data.participants[0] is string &&
+        request.resource.data.participants[1] is string &&
+        request.resource.data.participants[0] !=
+          request.resource.data.participants[1] &&
+        request.auth.uid in request.resource.data.participants &&
+        request.resource.data.inbox_request_id is string;
+    }
+
+    // Doc id must be "${sortedUids[0]}_${sortedUids[1]}" — locks both
+    // participants to writing the same id (prevents duplicate friendship
+    // docs) and ensures the participants list is in sorted order.
+    function isCanonicalFriendshipId(friendshipId, participants) {
+      return friendshipId ==
+        participants[0] + '_' + participants[1];
+    }
+
+    // Verifies that the referenced inbox item is a friend_request between
+    // the two participants AND will be 'accepted' after this batch commits.
+    // getAfter() lets us see the batch's own inbox status flip, so the
+    // friendship create + inbox accept can land atomically in one batch.
+    function inboxBacksFriendship(participants, inboxId) {
+      let inbox = getAfter(
+        /databases/$(database)/documents/inbox_items/$(inboxId)
+      ).data;
+      return inbox.type == 'friend_request' &&
+        inbox.status == 'accepted' &&
+        (
+          (inbox.sender_id == participants[0] &&
+            inbox.recipient_id == participants[1]) ||
+          (inbox.sender_id == participants[1] &&
+            inbox.recipient_id == participants[0])
+        );
+    }
+
+    function validDebtCreateData() {
+      return request.resource.data.keys().hasOnly([
+          'owner_id',
+          'counterpart_id',
+          'participants',
+          'direction',
+          'amount',
+          'description',
+          'status',
+          'deadline',
+          'created_at',
+          'updated_at',
+        ]) &&
+        request.resource.data.owner_id == request.auth.uid &&
+        request.resource.data.counterpart_id is string &&
+        request.resource.data.counterpart_id != request.auth.uid &&
+        request.resource.data.participants is list &&
+        request.resource.data.participants.size() == 2 &&
+        request.auth.uid in request.resource.data.participants &&
+        request.resource.data.counterpart_id in request.resource.data.participants &&
+        (request.resource.data.direction == 'lend' ||
+          request.resource.data.direction == 'borrow') &&
+        request.resource.data.amount is number &&
+        request.resource.data.status == 'pending';
+    }
+
+    function validDebtUpdateData() {
+      return request.resource.data.keys().hasOnly([
+          'owner_id',
+          'counterpart_id',
+          'participants',
+          'direction',
+          'amount',
+          'description',
+          'status',
+          'deadline',
+          'created_at',
+          'updated_at',
+          'settled_at',
+        ]) &&
+        request.resource.data.owner_id == resource.data.owner_id &&
+        request.resource.data.counterpart_id == resource.data.counterpart_id &&
+        request.resource.data.participants == resource.data.participants &&
+        request.resource.data.direction == resource.data.direction &&
+        request.resource.data.amount == resource.data.amount &&
+        request.resource.data.description == resource.data.description &&
+        request.resource.data.deadline == resource.data.deadline &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'updated_at',
+          'settled_at',
+        ]) &&
+        (
+          (resource.data.status == 'pending' &&
+            request.resource.data.status == 'active') ||
+          (resource.data.status == 'active' &&
+            request.resource.data.status == 'settled') ||
+          request.resource.data.status == resource.data.status
+        );
+    }
+
+    function validInboxCreateData() {
+      return request.resource.data.keys().hasOnly([
+          'recipient_id',
+          'sender_id',
+          'type',
+          'payload',
+          'status',
+          'created_at',
+        ]) &&
+        request.resource.data.recipient_id is string &&
+        request.resource.data.sender_id == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        (
+          request.resource.data.type == 'friend_request' ||
+          request.resource.data.type == 'friend_request_accepted' ||
+          request.resource.data.type == 'debt_request' ||
+          request.resource.data.type == 'debt_accepted' ||
+          request.resource.data.type == 'debt_declined' ||
+          request.resource.data.type == 'settlement_request' ||
+          request.resource.data.type == 'settlement_accepted'
+        );
+    }
+
+    function validInboxUpdateData() {
+      return request.auth.uid == resource.data.recipient_id &&
+        request.resource.data.keys().hasOnly([
+          'recipient_id',
+          'sender_id',
+          'type',
+          'payload',
+          'status',
+          'created_at',
+        ]) &&
+        request.resource.data.recipient_id == resource.data.recipient_id &&
+        request.resource.data.sender_id == resource.data.sender_id &&
+        request.resource.data.type == resource.data.type &&
+        request.resource.data.payload == resource.data.payload &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+        ]) &&
+        (
+          request.resource.data.status == 'accepted' ||
+          request.resource.data.status == 'declined' ||
+          request.resource.data.status == 'dismissed' ||
+          request.resource.data.status == 'pending'
+        );
+    }
+
+    function validCreditScoreEventCreateData() {
+      return request.resource.data.keys().hasOnly([
+          'user_id',
+          'debt_id',
+          'event_type',
+          'points',
+          'event_date',
+          'created_at',
+        ]) &&
+        exists(/databases/$(database)/documents/debts/$(request.resource.data.debt_id)) &&
+        request.resource.data.user_id is string &&
+        request.resource.data.debt_id is string &&
+        request.resource.data.points is number &&
+        (
+          request.resource.data.event_type == 'missed_deadline' ||
+          request.resource.data.event_type == 'overdue_day' ||
+          request.resource.data.event_type == 'on_time_settlement'
+        ) &&
+        request.resource.data.user_id ==
+          borrowerIdForDebt(
+            get(/databases/$(database)/documents/debts/$(request.resource.data.debt_id)).data
+          ) &&
+        request.auth.uid in
+          get(/databases/$(database)/documents/debts/$(request.resource.data.debt_id)).data.participants;
+    }
+
+    function borrowerIdForDebt(data) {
+      return data.direction == 'lend'
+        ? data.counterpart_id
+        : data.owner_id;
+    }
+
+    match /users/{userId} {
+      allow read: if isSelf(userId);
+      allow create: if isSelf(userId) && validUserCreateData();
+      allow update: if isSelf(userId) && validUserUpdateData();
+      allow delete: if false;
+
+      match /transactions/{transactionId} {
+        allow read, write: if isSelf(userId);
+      }
+    }
+
+    match /user_profiles/{userId} {
+      allow read: if signedIn();
+      allow create: if isSelf(userId) && validProfileData() && ownsUsernameClaim();
+      allow update: if isSelf(userId) &&
+        request.resource.data.keys().hasOnly([
+          'display_name',
+          'display_name_lower',
+          'username',
+          'username_lower',
+          'created_at',
+        ]) &&
+        request.resource.data.username == resource.data.username &&
+        request.resource.data.username_lower == resource.data.username_lower &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'display_name',
+          'display_name_lower',
+        ]);
+      allow delete: if false;
+    }
+
+    match /username_claims/{usernameLower} {
+      allow read: if signedIn();
+      allow create: if signedIn() &&
+        validUsername(usernameLower) &&
+        request.resource.data.keys().hasOnly([
+          'owner_uid',
+          'username_lower',
+          'created_at',
+        ]) &&
+        request.resource.data.owner_uid == request.auth.uid &&
+        request.resource.data.username_lower == usernameLower;
+      allow update, delete: if false;
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      // Create requires (a) canonical doc id derived from sorted uids,
+      // and (b) a matching friend_request inbox item that is being
+      // flipped to 'accepted' in the same batch. Closes the unilateral
+      // forced-friendship hole — attacker can no longer write a
+      // friendships doc pairing themselves with anyone they like.
+      allow create: if signedIn() &&
+        validFriendshipData() &&
+        isCanonicalFriendshipId(
+          friendshipId,
+          request.resource.data.participants
+        ) &&
+        inboxBacksFriendship(
+          request.resource.data.participants,
+          request.resource.data.inbox_request_id
+        );
+      allow update: if signedIn() &&
+        request.auth.uid in resource.data.participants &&
+        request.resource.data == resource.data;
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
+    }
+
+    match /debts/{debtId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn() && validDebtCreateData();
+      allow update: if signedIn() &&
+        request.auth.uid in resource.data.participants &&
+        validDebtUpdateData();
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
+    }
+
+    match /inbox_items/{itemId} {
+      allow read: if isInboxParty(resource.data);
+      allow create: if signedIn() &&
+        isInboxParty(request.resource.data) &&
+        validInboxCreateData();
+      allow update: if isInboxParty(resource.data) && validInboxUpdateData();
+      allow delete: if false;
+    }
+
+    match /credit_score_events/{eventId} {
+      allow read: if signedIn() &&
+        (
+          !exists(/databases/$(database)/documents/credit_score_events/$(eventId)) ||
+          resource.data.user_id == request.auth.uid ||
+          request.auth.uid in
+            get(/databases/$(database)/documents/debts/$(resource.data.debt_id)).data.participants
+        );
+      allow create: if signedIn() && validCreditScoreEventCreateData();
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,144 +1,397 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
-import '../../../core/providers/supabase_providers.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/firebase/user_records.dart';
+import '../../../core/providers/firebase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../domain/friend_model.dart';
 
+// Watch user?.uid (a String) instead of the full User object so the controller
+// only rebuilds when the logged-in account actually changes — not every time
+// Firebase Auth re-emits the same user with a new object reference on startup.
 final friendsControllerProvider =
     StateNotifierProvider<FriendsController, FriendsState>((ref) {
-      return FriendsController(ref);
+      final isGuest = ref.watch(isGuestModeProvider);
+      if (isGuest) {
+        return FriendsController.guest(ref);
+      }
+      final uid = ref.watch(currentUserProvider.select((u) => u?.uid));
+      if (uid == null) {
+        return FriendsController.guest(ref);
+      }
+      return FriendsController.remote(ref, uid);
     });
 
 class FriendsState {
   const FriendsState({
     required this.friends,
     required this.requests,
+    this.outgoingRequests = const [],
+    this.acceptedNotifications = const [],
   });
 
   final List<FriendModel> friends;
   final List<FriendRequestModel> requests;
+  final List<FriendRequestModel> outgoingRequests;
+  final List<FriendRequestModel> acceptedNotifications;
 
-  List<FriendRequestModel> get pendingRequests => requests
-      .where((r) => r.status == FriendRequestStatus.pending)
-      .toList();
+  List<FriendRequestModel> get pendingRequests =>
+      requests.where((r) => r.status == FriendRequestStatus.pending).toList();
 
   FriendsState copyWith({
     List<FriendModel>? friends,
     List<FriendRequestModel>? requests,
+    List<FriendRequestModel>? outgoingRequests,
+    List<FriendRequestModel>? acceptedNotifications,
   }) {
     return FriendsState(
       friends: friends ?? this.friends,
       requests: requests ?? this.requests,
+      outgoingRequests: outgoingRequests ?? this.outgoingRequests,
+      acceptedNotifications:
+          acceptedNotifications ?? this.acceptedNotifications,
     );
   }
 }
 
 class FriendsController extends StateNotifier<FriendsState> {
-  FriendsController(this._ref)
-      : super(const FriendsState(friends: [], requests: [])) {
+  FriendsController.remote(this._ref, this._userId)
+    : super(const FriendsState(friends: [], requests: [])) {
     _load();
+    _subscribeToRemoteChanges();
   }
 
+  FriendsController.guest(this._ref)
+    : _userId = null,
+      super(const FriendsState(friends: [], requests: []));
+
   final Ref _ref;
+  final String? _userId;
   final Set<String> _sentRequestIds = {};
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
 
-  SupabaseClient get _client => _ref.read(supabaseClientProvider);
-  String get _userId => _ref.read(currentUserIdProvider);
+  // Generation counters prevent stale concurrent async fetches from overwriting
+  // newer results when multiple snapshot events fire in quick succession.
+  int _requestsGeneration = 0;
+  int _friendsGeneration = 0;
 
-  Future<void> _load() async {
+  FirebaseFirestore get _db => _ref.read(firestoreProvider);
+
+  Future<void> refresh() => _load();
+
+  // Single source of truth for state.friends — always reads from the
+  // `friendships` collection so the list survives hot restarts and sign-out/in.
+  Future<void> _loadFriends() async {
+    final userId = _userId;
+    if (userId == null) return;
+    final gen = ++_friendsGeneration;
     try {
-      final userId = _userId;
-
-      // Load friendships
-      final friendshipRows = await _client
-          .from('friendships')
-          .select('user_id, friend_id')
-          .or('user_id.eq.$userId,friend_id.eq.$userId');
-
-      final friendIds = <String>[];
-      for (final row in (friendshipRows as List)) {
-        final uid = row['user_id'] as String;
-        final fid = row['friend_id'] as String;
-        friendIds.add(uid == userId ? fid : uid);
+      final snapshot = await _db
+          .collection('friendships')
+          .where('participants', arrayContains: userId)
+          .get();
+      final friends = await _buildFriends(snapshot.docs);
+      // Don't apply an empty cache result — it's stale and would wipe out
+      // friends that are already loaded from the server.
+      final isEmptyCache = friends.isEmpty && snapshot.metadata.isFromCache;
+      if (mounted && gen == _friendsGeneration && !isEmptyCache) {
+        state = state.copyWith(friends: friends);
       }
+    } catch (e, st) {
+      debugPrint('FriendsController friends load failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
+  }
 
-      List<FriendModel> friends = [];
-      if (friendIds.isNotEmpty) {
-        final profileRows = await _client
-            .from('profiles')
-            .select('id, display_name, username')
-            .inFilter('id', friendIds);
-        friends = (profileRows as List)
-            .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
-            .toList();
+  void _subscribeToRemoteChanges() {
+    final userId = _userId;
+    if (userId == null) return;
+
+    // Single-filter query (no composite index needed). Friend-request/pending
+    // filtering is applied in Dart so this subscription also wakes up when a
+    // debt request arrives, but that's harmless — _buildRequests is cheap.
+    _subscriptions.add(
+      _db
+          .collection('inbox_items')
+          .where('recipient_id', isEqualTo: userId)
+          .snapshots()
+          .listen(
+            (snapshot) {
+              final requestDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request' &&
+                    data['status'] == 'pending';
+              }).toList();
+
+              final acceptedDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request_accepted' &&
+                    data['status'] == 'pending';
+              }).toList();
+
+              final gen = ++_requestsGeneration;
+              Future.wait([
+                    _buildRequests(requestDocs, counterpartField: 'sender_id'),
+                    _buildRequests(acceptedDocs, counterpartField: 'sender_id'),
+                  ])
+                  .then((results) {
+                    if (mounted && gen == _requestsGeneration) {
+                      // Immediately merge accepted-notification senders into friends
+                      // so User A sees the new friend as soon as the notification
+                      // arrives — mirrors the local-state update in acceptFriendRequest.
+                      final existingIds = state.friends
+                          .map((f) => f.id)
+                          .toSet();
+                      final newFriends = results[1]
+                          .where((n) => !existingIds.contains(n.user.id))
+                          .map((n) => n.user)
+                          .toList();
+                      state = state.copyWith(
+                        requests: results[0],
+                        acceptedNotifications: results[1],
+                        friends: newFriends.isEmpty
+                            ? null
+                            : [...state.friends, ...newFriends],
+                      );
+                      if (results[1].isNotEmpty) _loadFriends();
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController requests update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController inbox stream error: $e'),
+          ),
+    );
+
+    // Friendships stream — fires for both sides whenever a friendship document
+    // is created or updated, keeping state.friends in sync in real-time.
+    // NOTE: Firestore streams always deliver the local cache snapshot first,
+    // before the server response arrives. If the cache is empty or stale (e.g.
+    // User A's device never wrote the friendship — User B did), that first
+    // snapshot would incorrectly wipe state.friends. We skip it.
+    _subscriptions.add(
+      _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .snapshots()
+          .listen(
+            (snapshot) {
+              final outgoingDocs = snapshot.docs.where((doc) {
+                final data = doc.data();
+                return data['type'] == 'friend_request' &&
+                    data['status'] == 'pending';
+              }).toList();
+
+              final gen = ++_requestsGeneration;
+              _buildRequests(
+                    outgoingDocs,
+                    counterpartField: 'recipient_id',
+                    isOutgoing: true,
+                  )
+                  .then((requests) {
+                    if (mounted && gen == _requestsGeneration) {
+                      state = state.copyWith(outgoingRequests: requests);
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController outgoing update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController outgoing stream error: $e'),
+          ),
+    );
+
+    _subscriptions.add(
+      _db
+          .collection('friendships')
+          .where('participants', arrayContains: userId)
+          .snapshots()
+          .listen(
+            (snapshot) {
+              if (snapshot.docs.isEmpty && snapshot.metadata.isFromCache) {
+                return;
+              }
+              final gen = ++_friendsGeneration;
+              _buildFriends(snapshot.docs)
+                  .then((friends) {
+                    if (mounted && gen == _friendsGeneration) {
+                      state = state.copyWith(friends: friends);
+                    }
+                  })
+                  .catchError((Object e) {
+                    debugPrint('FriendsController friends update failed: $e');
+                  });
+            },
+            onError: (Object e) =>
+                debugPrint('FriendsController friendships stream error: $e'),
+          ),
+    );
+  }
+
+  // Initial load and pull-to-refresh.  Each section is an independent
+  // try-catch so a missing Firestore index on one query doesn't wipe out
+  // the results of another.
+  Future<void> _load() async {
+    final userId = _userId;
+    if (userId == null) return;
+
+    // Friends: no generation guard so this always applies, even if the streams
+    // already incremented _friendsGeneration. Guard against an empty cache
+    // result overwriting friends that the server has already confirmed.
+    try {
+      final snapshot = await _db
+          .collection('friendships')
+          .where('participants', arrayContains: userId)
+          .get();
+      final friends = await _buildFriends(snapshot.docs);
+      final isEmptyCache = friends.isEmpty && snapshot.metadata.isFromCache;
+      if (mounted && !isEmptyCache) {
+        state = state.copyWith(friends: friends);
       }
+    } catch (e, st) {
+      debugPrint('FriendsController friends load failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
 
-      // Load pending incoming friend requests
-      final requestRows = await _client
-          .from('inbox_items')
-          .select('id, sender_id, created_at')
-          .eq('recipient_id', userId)
-          .eq('type', 'friend_request')
-          .eq('status', 'pending')
-          .order('created_at', ascending: false);
-
-      final senderIds =
-          (requestRows as List).map((r) => r['sender_id'] as String).toList();
-
-      final Map<String, FriendModel> senderProfiles = {};
-      if (senderIds.isNotEmpty) {
-        final profileRows = await _client
-            .from('profiles')
-            .select('id, display_name, username')
-            .inFilter('id', senderIds);
-        for (final r in (profileRows as List)) {
-          final m = r as Map<String, dynamic>;
-          senderProfiles[m['id'] as String] = FriendModel.fromJson(m);
-        }
-      }
-
-      final requests = <FriendRequestModel>[];
-      for (final row in requestRows) {
-        final senderId = row['sender_id'] as String;
-        final sender = senderProfiles[senderId];
-        if (sender != null) {
-          requests.add(FriendRequestModel(
-            id: row['id'] as String,
-            user: sender,
-            createdAt: DateTime.parse(row['created_at'] as String),
-          ));
-        }
-      }
-
+    // Single-field query avoids composite index requirements; type/status
+    // filtering is done in Dart below.
+    try {
+      final snapshot = await _db
+          .collection('inbox_items')
+          .where('recipient_id', isEqualTo: userId)
+          .get();
+      final requestDocs = snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request' && data['status'] == 'pending';
+      }).toList();
+      final acceptedDocs = snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request_accepted' &&
+            data['status'] == 'pending';
+      }).toList();
+      final outgoingDocs = await _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .get();
+      final outgoingRequestDocs = outgoingDocs.docs.where((doc) {
+        final data = doc.data();
+        return data['type'] == 'friend_request' && data['status'] == 'pending';
+      }).toList();
+      final requests = await _buildRequests(
+        requestDocs,
+        counterpartField: 'sender_id',
+      );
+      final notifications = await _buildRequests(
+        acceptedDocs,
+        counterpartField: 'sender_id',
+      );
+      final outgoingRequests = await _buildRequests(
+        outgoingRequestDocs,
+        counterpartField: 'recipient_id',
+        isOutgoing: true,
+      );
       if (mounted) {
-        state = FriendsState(friends: friends, requests: requests);
+        state = state.copyWith(
+          requests: requests,
+          outgoingRequests: outgoingRequests,
+          acceptedNotifications: notifications,
+        );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('FriendsController inbox load failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
+  }
+
+  Future<List<FriendModel>> _buildFriends(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    final friendIds = <String>[];
+    for (final doc in docs) {
+      final participants =
+          (doc.data()['participants'] as List<dynamic>? ?? const [])
+              .cast<String>();
+      for (final participant in participants) {
+        if (participant != _userId) {
+          friendIds.add(participant);
+        }
+      }
+    }
+    return _loadUsersByIds(friendIds);
+  }
+
+  Future<List<FriendRequestModel>> _buildRequests(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    required String counterpartField,
+    bool isOutgoing = false,
+  }) async {
+    if (docs.isEmpty) return [];
+
+    final counterpartIds = docs
+        .map((doc) => doc.data()[counterpartField] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    final userProfiles = {
+      for (final user in await _loadUsersByIds(counterpartIds)) user.id: user,
+    };
+
+    final requests = <FriendRequestModel>[];
+    for (final doc in docs) {
+      final data = doc.data();
+      final counterpartId = data[counterpartField] as String? ?? '';
+      final counterpart = userProfiles[counterpartId];
+      if (counterpart != null) {
+        requests.add(
+          FriendRequestModel(
+            id: doc.id,
+            user: counterpart,
+            createdAt: _readDate(data['created_at']),
+            isOutgoing: isOutgoing,
+          ),
+        );
+      }
+    }
+    requests.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return requests;
   }
 
   Future<List<FriendModel>> searchUsers(String username) async {
-    final query = username.trim();
+    final query = username.trim().toLowerCase();
     if (query.isEmpty) return [];
 
     try {
       final userId = _userId;
+      if (userId == null) return [];
       final friendIds = state.friends.map((f) => f.id).toSet();
-      final requestedIds =
-          state.pendingRequests.map((r) => r.user.id).toSet();
+      final requestedIds = state.pendingRequests.map((r) => r.user.id).toSet();
+      final outgoingIds = state.outgoingRequests.map((r) => r.user.id).toSet();
 
-      final rows = await _client
-          .from('profiles')
-          .select('id, display_name, username')
-          .ilike('username', '%$query%')
-          .neq('id', userId)
-          .limit(10);
+      final rows = await _db
+          .collection(userProfilesCollection)
+          .orderBy('username_lower')
+          .startAt([query])
+          .endAt(['$query\uf8ff'])
+          .limit(10)
+          .get();
 
-      return (rows as List)
-          .map((r) => FriendModel.fromJson(r as Map<String, dynamic>))
-          .where((user) =>
-              !friendIds.contains(user.id) &&
-              !requestedIds.contains(user.id) &&
-              !_sentRequestIds.contains(user.id))
+      return rows.docs
+          .map((doc) => FriendModel.fromMap(doc.id, doc.data()))
+          .where(
+            (user) =>
+                user.id != userId &&
+                !friendIds.contains(user.id) &&
+                !requestedIds.contains(user.id) &&
+                !outgoingIds.contains(user.id) &&
+                !_sentRequestIds.contains(user.id),
+          )
           .toList();
     } catch (_) {
       return [];
@@ -146,53 +399,150 @@ class FriendsController extends StateNotifier<FriendsState> {
   }
 
   Future<void> sendFriendRequest(FriendModel user) async {
-    if (_sentRequestIds.contains(user.id)) return;
+    final userId = _userId;
+    if (userId == null || _sentRequestIds.contains(user.id)) return;
     _sentRequestIds.add(user.id);
     try {
-      await _client.from('inbox_items').insert({
+      final existingOutgoing = await _db
+          .collection('inbox_items')
+          .where('sender_id', isEqualTo: userId)
+          .get();
+      final hasPendingRequest = existingOutgoing.docs.any((doc) {
+        final data = doc.data();
+        return data['recipient_id'] == user.id &&
+            data['type'] == 'friend_request' &&
+            data['status'] == 'pending';
+      });
+      if (hasPendingRequest) {
+        return;
+      }
+
+      await _db.collection('inbox_items').add({
         'recipient_id': user.id,
-        'sender_id': _userId,
+        'sender_id': userId,
         'type': 'friend_request',
         'payload': <String, dynamic>{},
+        'status': 'pending',
+        'created_at': FieldValue.serverTimestamp(),
       });
+      if (mounted) {
+        state = state.copyWith(
+          outgoingRequests: [
+            FriendRequestModel(
+              id: 'local_${user.id}',
+              user: user,
+              createdAt: DateTime.now(),
+              isOutgoing: true,
+            ),
+            ...state.outgoingRequests,
+          ],
+        );
+      }
     } catch (_) {
       _sentRequestIds.remove(user.id);
     }
   }
 
+  // Atomically marks the request accepted, creates the friendship document,
+  // and notifies the original sender — all in a single Firestore batch so no
+  // partial state is left if any step fails.
   Future<void> acceptFriendRequest(String requestId) async {
-    final request = state.requests.firstWhere((item) => item.id == requestId);
-    try {
-      await _client
-          .from('inbox_items')
-          .update({'status': 'accepted'})
-          .eq('id', requestId);
-      await _client.from('friendships').insert({
-        'user_id': _userId,
-        'friend_id': request.user.id,
-      });
-      if (mounted) {
-        state = state.copyWith(
-          friends: [...state.friends, request.user],
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
-        );
-      }
-    } catch (_) {}
+    final userId = _userId;
+    if (userId == null) return;
+    final request = state.requests
+        .where((item) => item.id == requestId)
+        .firstOrNull;
+    if (request == null) return;
+
+    final notificationRef = _db.collection('inbox_items').doc();
+    final batch = _db.batch();
+
+    batch.set(_db.collection('inbox_items').doc(requestId), {
+      'status': 'accepted',
+    }, SetOptions(merge: true));
+    batch.set(
+      _db.collection('friendships').doc(_friendshipId(userId, request.user.id)),
+      {
+        'participants': [userId, request.user.id]..sort(),
+        // Required by firestore.rules: the rule reads this inbox doc via
+        // getAfter() and refuses to create the friendship unless it's a
+        // friend_request between these two participants and is flipped to
+        // status='accepted' in the same batch.
+        'inbox_request_id': requestId,
+        'created_at': FieldValue.serverTimestamp(),
+      },
+    );
+    batch.set(notificationRef, {
+      'recipient_id': request.user.id,
+      'sender_id': userId,
+      'type': 'friend_request_accepted',
+      'status': 'pending',
+      'payload': <String, dynamic>{},
+      'created_at': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+
+    // Immediately update the acceptor's local state so the friend appears
+    // without waiting for the friendships stream.
+    if (mounted) {
+      state = state.copyWith(
+        friends: [...state.friends, request.user],
+        requests: state.requests.where((r) => r.id != requestId).toList(),
+      );
+    }
+  }
+
+  Future<void> dismissAcceptedNotification(String notificationId) async {
+    await _db.collection('inbox_items').doc(notificationId).set({
+      'status': 'dismissed',
+    }, SetOptions(merge: true));
+    // inbox_items stream removes the dismissed notification from `acceptedNotifications`
   }
 
   Future<void> declineFriendRequest(String requestId) async {
-    try {
-      await _client
-          .from('inbox_items')
-          .update({'status': 'declined'})
-          .eq('id', requestId);
-      if (mounted) {
-        state = state.copyWith(
-          requests:
-              state.requests.where((item) => item.id != requestId).toList(),
-        );
-      }
-    } catch (_) {}
+    await _db.collection('inbox_items').doc(requestId).set({
+      'status': 'declined',
+    }, SetOptions(merge: true));
+    // inbox_items stream removes the declined request from `requests`
+  }
+
+  Future<List<FriendModel>> _loadUsersByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+
+    final uniqueIds = ids.toSet().toList();
+    final users = <FriendModel>[];
+
+    for (var i = 0; i < uniqueIds.length; i += 10) {
+      final chunk = uniqueIds.skip(i).take(10).toList();
+      final snapshot = await _db
+          .collection(userProfilesCollection)
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      users.addAll(
+        snapshot.docs.map((doc) => FriendModel.fromMap(doc.id, doc.data())),
+      );
+    }
+
+    return users;
+  }
+
+  String _friendshipId(String a, String b) {
+    final ids = [a, b]..sort();
+    return '${ids.first}_${ids.last}';
+  }
+
+  DateTime _readDate(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.now();
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
   }
 }

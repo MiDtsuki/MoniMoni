@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/firebase_providers.dart';
+import '../../../core/providers/session_providers.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
+import '../../credit_score/presentation/credit_score_card.dart';
 import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 import '../../debts/domain/friend_model.dart';
@@ -29,74 +32,86 @@ class ProfilePage extends ConsumerWidget {
     final debtNet = ref.watch(netDebtProvider);
     final notificationCount = ref.watch(pendingNotificationCountProvider);
     final settings = ref.watch(profileSettingsProvider);
+    final isGuest = ref.watch(isGuestModeProvider);
     final finalSummary = monthlyIncome - monthlyExpense + debtNet;
 
     return AppPage(
       title: 'Profile',
       subtitle: 'Financial dashboard for this month.',
-      action: IconButton.filledTonal(
-        onPressed: () => context.go('/profile/inbox'),
-        icon: notificationCount == 0
-            ? const Icon(LucideIcons.bell)
-            : Badge.count(
-                count: notificationCount,
-                child: const Icon(LucideIcons.bell),
-              ),
-      ),
+      onRefresh: () async {
+        await Future.wait([
+          ref.read(transactionControllerProvider.notifier).refresh(),
+          ref.read(debtControllerProvider.notifier).refresh(),
+          ref.read(friendsControllerProvider.notifier).refresh(),
+          ref.read(profileSettingsProvider.notifier).refresh(),
+        ]);
+      },
+      action: isGuest
+          ? null
+          : IconButton.filledTonal(
+              onPressed: () => context.go('/profile/inbox'),
+              icon: notificationCount == 0
+                  ? const Icon(LucideIcons.bell)
+                  : Badge.count(
+                      count: notificationCount,
+                      child: const Icon(LucideIcons.bell),
+                    ),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _UserHeader(),
+          const SizedBox(height: 16),
+          CreditScoreCard(score: settings.creditScore),
           const SizedBox(height: 16),
           _FinalSummaryCard(
             value: finalSummary,
             symbol: settings.currency.symbol,
           ),
           const SizedBox(height: 16),
-          _DashboardGrid(
-            cards: [
-              _DashboardMetric(
-                label: 'Current month income',
+          _CompactSummaryGrid(
+            monthlyItems: [
+              _SummaryItem(
+                label: 'Income',
                 value: monthlyIncome,
                 icon: LucideIcons.arrowDownLeft,
-                symbol: settings.currency.symbol,
               ),
-              _DashboardMetric(
-                label: 'Current month expenses',
+              _SummaryItem(
+                label: 'Expenses',
                 value: monthlyExpense,
                 icon: LucideIcons.arrowUpRight,
-                symbol: settings.currency.symbol,
               ),
-              _DashboardMetric(
-                label: 'Current month balance',
+              _SummaryItem(
+                label: 'Balance',
                 value: monthlyBalance,
                 icon: LucideIcons.wallet,
-                symbol: settings.currency.symbol,
-              ),
-              _DashboardMetric(
-                label: 'Total lent',
-                value: totalLent,
-                icon: LucideIcons.handCoins,
-                symbol: settings.currency.symbol,
-              ),
-              _DashboardMetric(
-                label: 'Total borrowed',
-                value: totalBorrowed,
-                icon: LucideIcons.banknoteArrowDown,
-                symbol: settings.currency.symbol,
-              ),
-              _DashboardMetric(
-                label: 'True debt net total',
-                value: debtNet,
-                icon: LucideIcons.scale,
-                symbol: settings.currency.symbol,
               ),
             ],
+            debtItems: [
+              _SummaryItem(
+                label: 'Lent',
+                value: totalLent,
+                icon: LucideIcons.handCoins,
+              ),
+              _SummaryItem(
+                label: 'Borrowed',
+                value: totalBorrowed,
+                icon: LucideIcons.banknoteArrowDown,
+              ),
+              _SummaryItem(
+                label: 'Net debt',
+                value: debtNet,
+                icon: LucideIcons.scale,
+              ),
+            ],
+            symbol: settings.currency.symbol,
           ),
           const SizedBox(height: 18),
           _SettingsSection(currency: settings.currency),
-          const SizedBox(height: 18),
-          const _AddFriendSection(),
+          if (!isGuest) ...[
+            const SizedBox(height: 18),
+            const _AddFriendSection(),
+          ],
           const SizedBox(height: 18),
           _SignOutButton(),
         ],
@@ -111,10 +126,12 @@ class _UserHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(profileSettingsProvider);
-    final displayName =
-        settings.displayName.isNotEmpty ? settings.displayName : 'Loading…';
-    final username =
-        settings.username.isNotEmpty ? '@${settings.username}' : '';
+    final displayName = settings.displayName.isNotEmpty
+        ? settings.displayName
+        : 'Loading…';
+    final username = settings.username.isNotEmpty
+        ? '@${settings.username}'
+        : '';
 
     return MoniCard(
       child: Row(
@@ -154,18 +171,34 @@ class _UserHeader extends ConsumerWidget {
   }
 }
 
-class _SignOutButton extends StatelessWidget {
+class _SignOutButton extends ConsumerWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(isGuestModeProvider);
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: () async {
-          await Supabase.instance.client.auth.signOut();
-          if (context.mounted) context.go('/login');
+          try {
+            if (isGuest) {
+              await guestSession.exit();
+            } else {
+              await FirebaseAuth.instance.signOut();
+            }
+          } finally {
+            ref
+              ..invalidate(currentUserProvider)
+              ..invalidate(transactionControllerProvider)
+              ..invalidate(debtControllerProvider)
+              ..invalidate(friendsControllerProvider)
+              ..invalidate(profileSettingsProvider);
+          }
+          if (context.mounted) {
+            context.go('/login');
+          }
         },
         icon: const Icon(LucideIcons.logOut),
-        label: const Text('Sign out'),
+        label: Text(isGuest ? 'Exit guest mode' : 'Sign out'),
       ),
     );
   }
@@ -212,43 +245,60 @@ class _FinalSummaryCard extends StatelessWidget {
   }
 }
 
-class _DashboardMetric {
-  const _DashboardMetric({
+class _SummaryItem {
+  const _SummaryItem({
     required this.label,
     required this.value,
     required this.icon,
-    required this.symbol,
   });
 
   final String label;
   final double value;
   final IconData icon;
-  final String symbol;
 }
 
-class _DashboardGrid extends StatelessWidget {
-  const _DashboardGrid({required this.cards});
+class _CompactSummaryGrid extends StatelessWidget {
+  const _CompactSummaryGrid({
+    required this.monthlyItems,
+    required this.debtItems,
+    required this.symbol,
+  });
 
-  final List<_DashboardMetric> cards;
+  final List<_SummaryItem> monthlyItems;
+  final List<_SummaryItem> debtItems;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth >= 900
-            ? (constraints.maxWidth - 24) / 3
-            : constraints.maxWidth >= 620
+        final wide = constraints.maxWidth >= 760;
+        final cardWidth = wide
             ? (constraints.maxWidth - 12) / 2
             : constraints.maxWidth;
+
         return Wrap(
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final card in cards)
-              SizedBox(
-                width: width,
-                child: _MetricCard(metric: card),
+            SizedBox(
+              width: cardWidth,
+              child: _SummaryGroupCard(
+                title: 'This month',
+                icon: LucideIcons.calendarDays,
+                items: monthlyItems,
+                symbol: symbol,
               ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _SummaryGroupCard(
+                title: 'Debts',
+                icon: LucideIcons.handCoins,
+                items: debtItems,
+                symbol: symbol,
+              ),
+            ),
           ],
         );
       },
@@ -256,27 +306,88 @@ class _DashboardGrid extends StatelessWidget {
   }
 }
 
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.metric});
+class _SummaryGroupCard extends StatelessWidget {
+  const _SummaryGroupCard({
+    required this.title,
+    required this.icon,
+    required this.items,
+    required this.symbol,
+  });
 
-  final _DashboardMetric metric;
+  final String title;
+  final IconData icon;
+  final List<_SummaryItem> items;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
     return MoniCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(metric.icon, color: MoniTheme.primaryGreen),
-          const SizedBox(height: 12),
-          Text(metric.label),
-          const SizedBox(height: 8),
-          Text(
-            CurrencyFormatter.withSymbol(metric.value, metric.symbol),
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: MoniTheme.softGreen,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 19, color: MoniTheme.primaryGreen),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < items.length; i++) ...[
+            _SummaryRow(item: items[i], symbol: symbol),
+            if (i != items.length - 1)
+              const Divider(height: 16, color: MoniTheme.line),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({required this.item, required this.symbol});
+
+  final _SummaryItem item;
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(item.icon, size: 18, color: MoniTheme.primaryGreen),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            item.label,
+            style: const TextStyle(
+              color: MoniTheme.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            CurrencyFormatter.withSymbol(item.value, symbol),
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,9 +1,9 @@
 import 'package:intl/intl.dart';
 
 class CurrencyFormatter {
-  static final _formatter = NumberFormat.currency(symbol: r'$');
-
-  static String compact(num value) => _formatter.format(value);
+  static String compact(num value, String symbol) {
+    return NumberFormat.currency(symbol: symbol).format(value);
+  }
 
   static String withSymbol(num value, String symbol) {
     return NumberFormat.currency(symbol: symbol).format(value);

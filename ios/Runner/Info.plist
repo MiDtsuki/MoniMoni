@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Moni needs photo library access to read QR codes from transfer receipt images.</string>
 </dict>
 </plist>

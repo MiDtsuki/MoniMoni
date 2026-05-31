@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../app/theme.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../profile/application/profile_settings_controller.dart';
 import '../../transactions/application/transaction_controller.dart';
 import '../../transactions/domain/transaction_model.dart';
 
@@ -60,78 +61,85 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1040),
-            child: CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _MonthBar(
-                          month: _selectedMonth,
-                          onPrevious: () => _moveMonth(-1),
-                          onNext: () => _moveMonth(1),
-                        ),
-                        const SizedBox(height: 22),
-                        _StatsTabs(
-                          selectedType: _selectedType,
-                          incomeTotal: totalIncome,
-                          expenseTotal: totalExpense,
-                          onChanged: (type) {
-                            setState(() => _selectedType = type);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                  sliver: SliverToBoxAdapter(
-                    child: entries.isEmpty
-                        ? EmptyState(
-                            title:
-                                'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} this month',
-                            message:
-                                'Add transactions in ${DateFormat('MMMM yyyy').format(_selectedMonth)} to see category statistics.',
-                            icon: LucideIcons.chartPie,
-                          )
-                        : LayoutBuilder(
-                            builder: (context, constraints) {
-                              final wide = constraints.maxWidth >= 860;
-                              final chart = _LargePiePanel(
-                                entries: entries,
-                                total: selectedTotal,
-                                colors: colors,
-                              );
-                              final list = _BreakdownList(
-                                entries: entries,
-                                total: selectedTotal,
-                                colors: colors,
-                              );
-
-                              if (wide) {
-                                return Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(flex: 5, child: chart),
-                                    const SizedBox(width: 18),
-                                    Expanded(flex: 4, child: list),
-                                  ],
-                                );
-                              }
-                              return Column(
-                                children: [
-                                  chart,
-                                  const SizedBox(height: 16),
-                                  list,
-                                ],
-                              );
+            child: RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(transactionControllerProvider.notifier).refresh(),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _MonthBar(
+                            month: _selectedMonth,
+                            onPrevious: () => _moveMonth(-1),
+                            onNext: () => _moveMonth(1),
+                            onTapMonth: _pickMonth,
+                          ),
+                          const SizedBox(height: 22),
+                          _StatsTabs(
+                            selectedType: _selectedType,
+                            incomeTotal: totalIncome,
+                            expenseTotal: totalExpense,
+                            onChanged: (type) {
+                              setState(() => _selectedType = type);
                             },
                           ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                    sliver: SliverToBoxAdapter(
+                      child: entries.isEmpty
+                          ? EmptyState(
+                              title:
+                                  'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} this month',
+                              message:
+                                  'Add transactions in ${DateFormat('MMMM yyyy').format(_selectedMonth)} to see category statistics.',
+                              icon: LucideIcons.chartPie,
+                            )
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                final wide = constraints.maxWidth >= 860;
+                                final chart = _LargePiePanel(
+                                  entries: entries,
+                                  total: selectedTotal,
+                                  colors: colors,
+                                );
+                                final list = _BreakdownList(
+                                  entries: entries,
+                                  total: selectedTotal,
+                                  colors: colors,
+                                );
+
+                                if (wide) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(flex: 5, child: chart),
+                                      const SizedBox(width: 18),
+                                      Expanded(flex: 4, child: list),
+                                    ],
+                                  );
+                                }
+                                return Column(
+                                  children: [
+                                    chart,
+                                    const SizedBox(height: 16),
+                                    list,
+                                  ],
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -146,6 +154,35 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         _selectedMonth.month + delta,
       );
     });
+  }
+
+  Future<void> _pickMonth() async {
+    final picked = await _showAdaptiveMonthPicker();
+    if (picked == null) return;
+    setState(() => _selectedMonth = picked);
+  }
+
+  Future<DateTime?> _showAdaptiveMonthPicker() {
+    final picker = _MonthPicker(initialMonth: _selectedMonth);
+    final isWide = MediaQuery.sizeOf(context).width >= 720;
+    if (isWide) {
+      return showDialog<DateTime>(
+        context: context,
+        builder: (context) => Dialog(
+          insetPadding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: picker,
+          ),
+        ),
+      );
+    }
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(child: picker),
+    );
   }
 
   Map<String, double> _categoryTotals(
@@ -176,11 +213,13 @@ class _MonthBar extends StatelessWidget {
     required this.month,
     required this.onPrevious,
     required this.onNext,
+    required this.onTapMonth,
   });
 
   final DateTime month;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+  final VoidCallback onTapMonth;
 
   @override
   Widget build(BuildContext context) {
@@ -192,24 +231,27 @@ class _MonthBar extends StatelessWidget {
           icon: const Icon(Icons.chevron_left),
         ),
         Expanded(
-          child: Text(
-            DateFormat('MMM yyyy').format(month),
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(color: MoniTheme.line),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                Text('Monthly', style: TextStyle(fontWeight: FontWeight.w900)),
-                SizedBox(width: 6),
-                Icon(Icons.keyboard_arrow_down, size: 18),
-              ],
+          child: Center(
+            child: InkWell(
+              onTap: onTapMonth,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      DateFormat('MMM yyyy').format(month),
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.keyboard_arrow_down, size: 22),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -262,7 +304,7 @@ class _StatsTabs extends StatelessWidget {
   }
 }
 
-class _StatsTab extends StatelessWidget {
+class _StatsTab extends ConsumerWidget {
   const _StatsTab({
     required this.label,
     required this.total,
@@ -276,7 +318,8 @@ class _StatsTab extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     return Expanded(
       child: InkWell(
         onTap: onTap,
@@ -287,7 +330,7 @@ class _StatsTab extends StatelessWidget {
               child: FittedBox(
                 child: Text(
                   selected
-                      ? '$label ${CurrencyFormatter.compact(total)}'
+                      ? '$label ${CurrencyFormatter.compact(total, symbol)}'
                       : label,
                   style: TextStyle(
                     color: selected ? MoniTheme.ink : MoniTheme.muted,
@@ -297,14 +340,23 @@ class _StatsTab extends StatelessWidget {
                 ),
               ),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              height: 4,
-              width: selected ? double.infinity : 0,
-              decoration: BoxDecoration(
-                color: MoniTheme.primaryGreen,
-                borderRadius: BorderRadius.circular(99),
-              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final targetWidth = selected && constraints.hasBoundedWidth
+                    ? constraints.maxWidth
+                    : 0.0;
+
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  height: 4,
+                  width: targetWidth,
+                  decoration: BoxDecoration(
+                    color: MoniTheme.primaryGreen,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -459,7 +511,7 @@ class _BreakdownList extends StatelessWidget {
   }
 }
 
-class _BreakdownRow extends StatelessWidget {
+class _BreakdownRow extends ConsumerWidget {
   const _BreakdownRow({
     required this.entry,
     required this.total,
@@ -471,7 +523,8 @@ class _BreakdownRow extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     final percent = total == 0 ? 0.0 : entry.value / total;
 
     return Padding(
@@ -509,7 +562,7 @@ class _BreakdownRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text(
-            CurrencyFormatter.compact(entry.value),
+            CurrencyFormatter.compact(entry.value, symbol),
             style: Theme.of(context).textTheme.titleMedium,
           ),
         ],
@@ -573,4 +626,92 @@ const _chartColors = [
 
 Color _readableTextOn(Color color) {
   return color.computeLuminance() > 0.55 ? MoniTheme.ink : Colors.white;
+}
+
+class _MonthPicker extends StatefulWidget {
+  const _MonthPicker({required this.initialMonth});
+
+  final DateTime initialMonth;
+
+  @override
+  State<_MonthPicker> createState() => _MonthPickerState();
+}
+
+class _MonthPickerState extends State<_MonthPicker> {
+  late int _year;
+  late int _month;
+
+  @override
+  void initState() {
+    super.initState();
+    _year = widget.initialMonth.year;
+    _month = widget.initialMonth.month;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Previous year',
+                onPressed: () => setState(() => _year--),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '$_year',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next year',
+                onPressed: () => setState(() => _year++),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            itemCount: 12,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              childAspectRatio: 2.1,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+            ),
+            itemBuilder: (context, index) {
+              final month = index + 1;
+              final selected = month == _month;
+              return OutlinedButton(
+                onPressed: () => setState(() => _month = month),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: selected
+                      ? MoniTheme.softGreen
+                      : Colors.white,
+                  side: BorderSide(
+                    color: selected ? MoniTheme.primaryGreen : MoniTheme.line,
+                  ),
+                ),
+                child: Text(DateFormat.MMM().format(DateTime(_year, month))),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(DateTime(_year, _month)),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
 }

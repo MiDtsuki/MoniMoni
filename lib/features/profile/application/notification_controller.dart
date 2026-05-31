@@ -4,7 +4,9 @@ import '../../debts/application/debt_controller.dart';
 import '../../debts/application/friends_controller.dart';
 
 final pendingNotificationCountProvider = Provider<int>((ref) {
-  final friendRequests = ref.watch(friendsControllerProvider).pendingRequests;
+  final friendsState = ref.watch(friendsControllerProvider);
   final debtRequests = ref.watch(debtControllerProvider).pendingRequests;
-  return friendRequests.length + debtRequests.length;
+  return friendsState.pendingRequests.length +
+      friendsState.acceptedNotifications.length +
+      debtRequests.length;
 });

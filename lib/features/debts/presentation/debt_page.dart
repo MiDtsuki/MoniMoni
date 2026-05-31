@@ -4,32 +4,57 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/providers/session_providers.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_page.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/moni_card.dart';
+import '../../../features/profile/application/profile_settings_controller.dart';
 import '../application/debt_controller.dart';
 import '../application/friends_controller.dart';
+import '../application/guest_debt_note_controller.dart';
 import '../domain/debt_model.dart';
 import '../domain/friend_model.dart';
+import '../domain/guest_debt_note_model.dart';
+
+const _kMinCreditScore = 70;
+const _kCreditScoreWarning = 80;
 
 class DebtPage extends ConsumerWidget {
   const DebtPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(isGuestModeProvider);
+    if (isGuest) {
+      return const _GuestDebtNotesPage();
+    }
+
     final debtState = ref.watch(debtControllerProvider);
     final friendsState = ref.watch(friendsControllerProvider);
     final totalLent = ref.watch(totalLentProvider);
     final totalBorrowed = ref.watch(totalBorrowedProvider);
     final netDebt = ref.watch(netDebtProvider);
+    final creditScore = ref.watch(profileSettingsProvider).creditScore;
+    final symbol = ref.watch(currencySymbolProvider);
+    final blocked = creditScore < _kMinCreditScore;
 
     return AppPage(
       title: 'Debts',
       subtitle: 'Track money shared with friends.',
+      onRefresh: () async {
+        await Future.wait([
+          ref.read(debtControllerProvider.notifier).refresh(),
+          ref.read(friendsControllerProvider.notifier).refresh(),
+        ]);
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (creditScore < _kCreditScoreWarning) ...[
+            _CreditScoreBanner(score: creditScore, blocked: blocked),
+            const SizedBox(height: 16),
+          ],
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth > 760
@@ -43,16 +68,19 @@ class DebtPage extends ConsumerWidget {
                     label: 'Total lent',
                     value: totalLent,
                     width: width,
+                    symbol: symbol,
                   ),
                   _SummaryCard(
                     label: 'Total borrowed',
                     value: totalBorrowed,
                     width: width,
+                    symbol: symbol,
                   ),
                   _SummaryCard(
                     label: 'True net balance',
                     value: netDebt,
                     width: width,
+                    symbol: symbol,
                   ),
                 ],
               );
@@ -74,7 +102,7 @@ class DebtPage extends ConsumerWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: friendsState.friends.isEmpty
+                  onPressed: (friendsState.friends.isEmpty || blocked)
                       ? null
                       : () => context.go('/debts/new'),
                   icon: const Icon(LucideIcons.plus),
@@ -109,6 +137,7 @@ class DebtPage extends ConsumerWidget {
                     friend: friend,
                     debts: debtsForFriend(debtState, friend.id),
                     onTap: () => context.go('/debts/${friend.id}'),
+                    symbol: symbol,
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -120,16 +149,306 @@ class DebtPage extends ConsumerWidget {
   }
 }
 
+class _GuestDebtNotesPage extends ConsumerWidget {
+  const _GuestDebtNotesPage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notes = ref.watch(guestDebtNoteControllerProvider);
+    final symbol = ref.watch(currencySymbolProvider);
+    final lent = notes
+        .where((note) => note.type == GuestDebtNoteType.lent)
+        .fold<double>(0, (sum, note) => sum + note.amount);
+    final borrowed = notes
+        .where((note) => note.type == GuestDebtNoteType.borrowed)
+        .fold<double>(0, (sum, note) => sum + note.amount);
+
+    return AppPage(
+      title: 'Debt notes',
+      subtitle:
+          'Offline notes only. Friend requests are disabled in guest mode.',
+      onRefresh: () =>
+          ref.read(guestDebtNoteControllerProvider.notifier).refresh(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth > 760
+                  ? (constraints.maxWidth - 12) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _SummaryCard(
+                    label: 'Lent notes',
+                    value: lent,
+                    width: width,
+                    symbol: symbol,
+                  ),
+                  _SummaryCard(
+                    label: 'Borrowed notes',
+                    value: borrowed,
+                    width: width,
+                    symbol: symbol,
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                showDragHandle: true,
+                builder: (_) => const _GuestDebtNoteSheet(),
+              ),
+              icon: const Icon(LucideIcons.plus),
+              label: const Text('Add debt note'),
+            ),
+          ),
+          const SizedBox(height: 18),
+          if (notes.isEmpty)
+            const EmptyState(
+              title: 'No debt notes',
+              message:
+                  'Use guest debt notes for simple offline reminders. They are not shared with other users.',
+              icon: LucideIcons.notebookPen,
+            )
+          else
+            Column(
+              children: [
+                for (final note in notes) ...[
+                  _GuestDebtNoteCard(note: note),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GuestDebtNoteCard extends ConsumerWidget {
+  const _GuestDebtNoteCard({required this.note});
+
+  final GuestDebtNoteModel note;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLent = note.type == GuestDebtNoteType.lent;
+    return MoniCard(
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: MoniTheme.softGreen,
+            child: Icon(
+              isLent ? LucideIcons.arrowUpRight : LucideIcons.arrowDownLeft,
+              color: MoniTheme.primaryGreen,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  note.title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 3),
+                Text(isLent ? 'I lent this' : 'I borrowed this'),
+                if (note.deadline != null)
+                  Text(
+                    'Deadline ${note.deadline!.month}/${note.deadline!.day}/${note.deadline!.year}',
+                  ),
+                if (note.note != null) Text(note.note!),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                CurrencyFormatter.compact(
+                  note.amount,
+                  ref.watch(currencySymbolProvider),
+                ),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              IconButton(
+                tooltip: 'Delete note',
+                onPressed: () => ref
+                    .read(guestDebtNoteControllerProvider.notifier)
+                    .deleteNote(note.id),
+                icon: const Icon(LucideIcons.trash2),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GuestDebtNoteSheet extends ConsumerStatefulWidget {
+  const _GuestDebtNoteSheet();
+
+  @override
+  ConsumerState<_GuestDebtNoteSheet> createState() =>
+      _GuestDebtNoteSheetState();
+}
+
+class _GuestDebtNoteSheetState extends ConsumerState<_GuestDebtNoteSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _noteController = TextEditingController();
+  GuestDebtNoteType _type = GuestDebtNoteType.lent;
+  DateTime? _deadline;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _amountController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Debt note', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              SegmentedButton<GuestDebtNoteType>(
+                segments: const [
+                  ButtonSegment(
+                    value: GuestDebtNoteType.lent,
+                    label: Text('Lent'),
+                  ),
+                  ButtonSegment(
+                    value: GuestDebtNoteType.borrowed,
+                    label: Text('Borrowed'),
+                  ),
+                ],
+                selected: {_type},
+                onSelectionChanged: (value) =>
+                    setState(() => _type = value.first),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Person or note title',
+                  prefixIcon: Icon(LucideIcons.userRound),
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a title'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _amountController,
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  prefixIcon: Icon(LucideIcons.circleDollarSign),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  final amount = double.tryParse(value ?? '');
+                  if (amount == null || amount <= 0) {
+                    return 'Enter an amount greater than zero';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _pickDeadline,
+                icon: const Icon(LucideIcons.calendar),
+                label: Text(
+                  _deadline == null
+                      ? 'Optional deadline'
+                      : '${_deadline!.month}/${_deadline!.day}/${_deadline!.year}',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _noteController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Note',
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _save, child: const Text('Save note')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDeadline() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _deadline ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (date != null) setState(() => _deadline = date);
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    await ref
+        .read(guestDebtNoteControllerProvider.notifier)
+        .addNote(
+          title: _titleController.text,
+          amount: double.parse(_amountController.text),
+          type: _type,
+          deadline: _deadline,
+          note: _noteController.text,
+        );
+    if (mounted) Navigator.of(context).pop();
+  }
+}
+
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.label,
     required this.value,
     required this.width,
+    required this.symbol,
   });
 
   final String label;
   final double value;
   final double width;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +461,7 @@ class _SummaryCard extends StatelessWidget {
             Text(label),
             const SizedBox(height: 8),
             Text(
-              CurrencyFormatter.compact(value),
+              CurrencyFormatter.compact(value, symbol),
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ],
@@ -157,11 +476,13 @@ class _FriendCard extends StatelessWidget {
     required this.friend,
     required this.debts,
     required this.onTap,
+    required this.symbol,
   });
 
   final FriendModel friend;
   final List<DebtModel> debts;
   final VoidCallback onTap;
+  final String symbol;
 
   @override
   Widget build(BuildContext context) {
@@ -194,7 +515,7 @@ class _FriendCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 2),
-                  Text(friend.username),
+                  Text('@${friend.username}'),
                 ],
               ),
             ),
@@ -202,7 +523,7 @@ class _FriendCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  CurrencyFormatter.compact(net.abs()),
+                  CurrencyFormatter.compact(net.abs(), symbol),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(label),
@@ -214,6 +535,83 @@ class _FriendCard extends StatelessWidget {
     );
   }
 }
+
+// ─── Credit score banner ──────────────────────────────────────────────────────
+
+class _CreditScoreBanner extends StatelessWidget {
+  const _CreditScoreBanner({required this.score, required this.blocked});
+  final int score;
+  final bool blocked;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = blocked
+        ? const Color(0xFFEF4444)
+        : const Color(0xFFD97706);
+    final icon = blocked ? LucideIcons.shieldAlert : LucideIcons.triangleAlert;
+    final title = blocked ? 'Score too low' : 'Score warning';
+    final message = blocked
+        ? 'Score $score/100 — too low to add debts. Settle overdue debts to recover.'
+        : 'Score $score/100 — settle debts on time to avoid being blocked.';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE3EAE5)),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 5, color: accentColor),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              child: Icon(icon, color: accentColor, size: 22),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 13, 14, 13),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: accentColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        color: Color(0xFF6D7972),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _AddFriendDialog extends ConsumerStatefulWidget {
   const _AddFriendDialog();

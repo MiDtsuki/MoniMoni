@@ -1,218 +1,118 @@
-# CLAUDE.md
+# Moni Workspace Notes
 
-## Project
-Moni is a Flutter finance app for mobile and web.
+Moni (a.k.a. MoniOmega) is a Flutter app for tracking personal transactions and peer-to-peer debts with a demo credit-scoring system. This is a school project: prioritize demo-able behavior over production hardening.
 
-The intended product direction is offline-first:
-- Drift/SQLite should become the UI source of truth.
-- A background sync layer should reconcile local changes with Supabase.
+## Stack
 
-## Current Repo Reality
-This repository is not at the intended offline-first architecture yet.
+- Flutter (Dart 3.10.7), Material 3
+- State: `flutter_riverpod` 2.x using `StateNotifierProvider` + immutable state classes with hand-written `copyWith`. Freezed is in `pubspec.yaml` but unused — models are hand-written `fromMap`/`toMap`.
+- Routing: `go_router` 14.x with a `StatefulShellRoute.indexedStack` (4 tabs: Logs, Debts, Stats, Profile) and an auth-state redirect guard.
+- Backend: Firebase only — Auth, Cloud Firestore, and (written but not deployed) Cloud Functions.
+- Local: Drift + sqlite3 are wired but currently inert (no tables, no DAOs). Guest mode uses `SharedPreferences` via `lib/data/local/guest_store.dart`, not Drift.
+- Platforms configured: Android, iOS, Web have real Firebase config in `lib/firebase_options.dart` and are the supported targets. Windows / macOS / Linux entries are still placeholders.
 
-What exists now:
-- Flutter UI for auth, transactions, debts, stats, profile, and inbox
-- Riverpod state built with `StateNotifier` and simple `Provider`s
-- Supabase auth and table access wired directly into controllers
-- Auth guard in the router — unauthenticated users are redirected to login
-- Real signup and login via Supabase Auth with a `handle_new_user` trigger
-- Full Supabase schema checked into `supabase/schema.sql`
-- A minimal Drift database shell with no tables or DAOs powering app features yet
-- `lib/core/providers/supabase_providers.dart` providing the client and current user
+## Directory layout
 
-What is not done yet:
-- Drift-backed repositories for any app feature
-- Offline-first read/write flow
-- Sync engine and conflict handling
-- Realtime-to-Drift reconciliation
-- Full clean architecture separation
-- Migration to `AsyncNotifier`
-- Freezed domain models across the app
+- `lib/main.dart` — Firebase init, dotenv load, guest-session bootstrap, then `runApp(MoniApp)`.
+- `lib/app/` — `app.dart` (root `MaterialApp.router`), `router.dart` (GoRouter + bottom-nav shell), `theme.dart`.
+- `lib/core/`
+  - `firebase/user_records.dart` — account-record helpers; see "User identity model" below.
+  - `providers/firebase_providers.dart` — `FirebaseAuth`, `FirebaseFirestore`, and `authStateChanges` providers.
+  - `providers/session_providers.dart` — guest-mode `ChangeNotifier`.
+  - `constants/`, `utils/currency_formatter.dart`, `widgets/` (shared UI: `MoniCard`, `EmptyState`, `SectionHeader`, `AppPage`).
+- `lib/features/` — feature-first slices, each with `application/` (controllers), `domain/` (models), `presentation/` (pages):
+  - `auth/` — `login_page`, `signup_page`.
+  - `debts/` — `debt_controller`, `friends_controller`, `guest_debt_note_controller`; pages for list/detail/form.
+  - `transactions/` — `transaction_controller` + list/form pages. Lives under `users/{uid}/transactions`.
+  - `profile/` — `profile_settings_controller`, `notification_controller`, profile + inbox pages.
+  - `stats/` — `stats_page` (fl_chart-based).
+  - `credit_score/domain/credit_score_calculator.dart` — pure score math; **the only feature with real tests**.
+- `lib/data/local/` — Drift scaffolding + `guest_store.dart` + a manual `db_test_page` for debugging.
+- `functions/` — TypeScript Cloud Functions (see "Cloud Functions" below).
+- `firestore.rules` — active security rules (deployed).
+- `test/credit_score_calculator_test.dart` — only meaningful test.
 
-Agents working here should preserve momentum toward the target architecture without pretending the migration is complete.
+## Firestore collections
 
-## Tech Stack
-| Layer | Package |
-|---|---|
-| State management | `flutter_riverpod` |
-| Navigation | `go_router` |
-| Charts | `fl_chart` |
-| Formatting | `intl` |
-| ID generation | `uuid` |
-| Icons | `lucide_icons_flutter` |
-| Immutable models | `freezed` + `freezed_annotation` |
-| Local DB | `drift` + `sqlite3_flutter_libs` |
-| Remote backend | `supabase_flutter` |
-| Code generation | `build_runner`, `drift_dev` |
+All top-level unless noted.
 
-## Architecture
-Target dependency direction:
+- `users/{uid}` — private account data: `email`, `full_name`, `currency`, `credit_score`, `created_at`. Self-only read/write.
+- `users/{uid}/transactions/{txId}` — personal income/expense ledger (subcollection).
+- `user_profiles/{uid}` — public/searchable profile: `username`, `username_lower`, `display_name`, `display_name_lower`, `created_at`. Signed-in readable; owner-only writes.
+- `username_claims/{username_lower}` — uniqueness lock: `owner_uid`, `username_lower`, `created_at`. Create-only.
+- `friendships/{friendshipId}` — `participants: [uidA, uidB]` (sorted ascending), `inbox_request_id` (id of the accepted friend_request inbox doc that justifies this friendship), `created_at`. Participant-scoped. **Doc id is canonical `${sortedUids[0]}_${sortedUids[1]}`** so both sides write the same doc, and the create rule uses `getAfter()` to verify the referenced inbox doc is being flipped to `accepted` in the same batch — preventing unilateral friendship creation by a non-consenting party. Update is locked (`request.resource.data == resource.data`); delete is still unilateral (either participant can unfriend).
+- `debts/{debtId}` — `owner_id`, `counterpart_id`, `participants`, `direction` (`lend`|`borrow`), `amount`, `description`, `status` (`pending`→`active`→`settled`), `deadline`, `created_at`, `updated_at`, `settled_at`. Participant-scoped.
+- `inbox_items/{itemId}` — request envelopes: `recipient_id`, `sender_id`, `type` (`friend_request`, `friend_request_accepted`, `debt_request`, `debt_accepted`, `debt_declined`, `settlement_request`), `payload`, `status`, `created_at`. Sender + recipient can read; only recipient can update status.
+- `credit_score_events/{eventId}` — append-only score deltas: `user_id` (borrower), `debt_id`, `event_type` (`missed_deadline` | `overdue_day` | `on_time_settlement`), `points`, `event_date`, `created_at`. Readable by event owner or any participant of the referenced debt.
 
-`Presentation → Application → Domain ← Data ← Backend`
+`credit_score_events` is the source of truth for the displayed score — the `credit_score` field on `users/{uid}` is treated as a cached/legacy value. `profile_settings_controller` recomputes the score by summing events and feeding them into `CreditScoreCalculator`.
 
-Rules:
-- Domain should remain pure Dart.
-- Presentation should not talk to Supabase directly.
-- Application should depend on repository abstractions, not transport details.
-- Data should own local/remote coordination.
+## User identity model
 
-Target structure:
+`username` is the public app identity (used everywhere the user is shown and for search). `full_name` is private and only persisted in `users/{uid}`. There is no separate "display name" concept anymore — the `display_name` / `display_name_lower` fields on `user_profiles` exist for schema compatibility and are kept in sync with `username` by `user_records.dart`.
 
-```
-lib/
-  domain/
-    models/
-    repositories/
-    usecases/
+Username rules: 3–20 chars, lowercase letters/numbers/underscores (`^[a-z0-9_]{3,20}$`). Enforced both client-side (`isValidUsername`) and in Firestore rules.
 
-  application/
-    transaction/
-    debt/
-    stats/
-    friends/
-    inbox/
+Account creation goes through `createAccountRecords()` (signup) or `ensureAccountRecords()` (idempotent repair on login if any of the three docs are missing). Both run a single Firestore transaction that touches `users`, `user_profiles`, and `username_claims` together — never write to any of them directly elsewhere.
 
-  data/
-    local/
-      drift_db.dart
-      daos/
-      tables/
-    remote/
-      supabase_client.dart
-      transaction_remote.dart
-      debt_remote.dart
-      user_remote.dart
-    repositories/
-    sync/
-      sync_engine.dart
+## Cloud Functions
 
-  presentation/
-    router.dart
-    screens/
-      transactions/
-      debts/
-      stats/
-      profile/
-      inbox/
-    widgets/
+`functions/src/index.ts` contains two functions:
 
-  main.dart
-```
+- `backfillOverdueCreditScores` — daily scheduled scan that emits `overdue_day` / `missed_deadline` events.
+- `handleDebtSettlementCreditScore` — Firestore trigger that awards `on_time_settlement` on debt settle.
 
-Current code does not fully match this structure. Controllers talk to Supabase directly — there are no repository interfaces or DAOs yet. When making changes:
-- prefer moving new work toward this layout
-- avoid large opportunistic rewrites unless explicitly requested
-- keep working features stable while migrating incrementally
+**These are not deployed.** The project is on the Firebase Spark plan; Functions requires Blaze. For now, equivalent logic runs client-side in `debt_controller._applyCreditScoreEvent` and during settlement acceptance. Rules were intentionally relaxed to allow debt participants to create `credit_score_events` for the borrower of a referenced debt — read [firestore.rules](firestore.rules) before changing this.
 
-## Database And Backend
-Supabase is the active backend.
+Keep the Functions code working as a reference for the eventual server-side migration, but do not assume it runs.
 
-Current backend-related assets:
-- Auth via `supabase_flutter` (signup, login, signout, auth guard in router)
-- Full schema and RLS policies in `supabase/schema.sql` — this is the source of truth for the DB shape
-- Transactions, debts, friends, inbox, and profile flows wired against Supabase tables via controllers
+## Search
 
-Tables in use:
-- `profiles` — extended from `auth.users` via trigger, stores display_name, username, currency
-- `transactions` — income/expense logs per user, with soft delete via `deleted_at`
-- `friendships` — bidirectional friend relationships
-- `debts` — lend/borrow records with direction from owner's perspective
-- `inbox_items` — friend, debt, and settlement requests with payload jsonb
+Friend/user search is prefix-based on `user_profiles.username_lower` using `where('username_lower', isGreaterThanOrEqualTo: q).where('username_lower', isLessThanOrEqualTo: '$q')` (or `orderBy` + `startAt`/`endAt` equivalent). Do not introduce a search service — keep it pure Firestore.
 
-Drift is also in scope but currently only has a shell (`AppDatabase` with no tables).
+## Inbox / request flow
 
-When working on persistence:
-- prefer implementing real Drift tables and DAOs instead of expanding direct Supabase access
-- keep local schema and Supabase schema conceptually aligned
-- never hard-delete feature rows when soft delete is expected
+Every cross-user action (friend request, debt request, settlement request, plus accepted/declined notifications) is an `inbox_items` doc. The recipient mutates `status`; the sender sees their outgoing items as `Pending` in the inbox UI. `friends_controller` and `debt_controller` each subscribe to both incoming and outgoing inbox streams so the sender's UI reflects pending state without a separate "outbox" collection.
 
-## State Management
-Current state is Riverpod `StateNotifier`.
-Target state is Riverpod `AsyncNotifier` where async loading and persistence matter.
+## Guest mode
 
-Instructions:
-- do not introduce `setState` for app-level data flow
-- local widget interaction state is acceptable temporarily, but business state belongs in Riverpod
-- prefer repository-backed notifiers over table-access code inside controllers
-- migrate toward `AsyncNotifier` for feature controllers when touching that area substantially
+`guestSessionProvider` flips the auth-redirect guard. Guest data lives in `SharedPreferences` (`guest_store.dart`) — no Firestore, no Auth. Keep this path working when changing controllers: most of them have a guest branch that must not call Firebase.
 
-## Models
-Target rule: domain models should use `freezed`.
+## Conventions
 
-Current reality: all models are hand-written immutable classes with manual `copyWith`, `fromJson`, and `toJson`.
+- Treat `CLAUDE.md`, `AGENTS.md`, and `.claude/agents/` as the project memory and prompt-definition surface for deliverables.
+- Keep the app feature-first under `lib/features/<feature>/{application,domain,presentation}` and shared Firebase/session code in `lib/core/`.
+- Route writes to `users`, `user_profiles`, and `username_claims` through `lib/core/firebase/user_records.dart` so identity records stay in sync.
+- Keep Firestore field names aligned with the active schema documented in this file.
+- Preserve the guest-mode split when editing controllers, routing, or profile flows.
 
-Instructions:
-- do not mix `dynamic` into model boundaries
-- prefer explicit typed mapping
-- if you introduce or heavily revise a domain model, bias toward `freezed`
+## Do Not Do
 
-## Offline-First Rules
-These are the target rules for future work:
-- UI reads should come from Drift, not Supabase.
-- Writes should go local first, then sync outward.
-- Use `deleted_at` for soft deletes.
-- Sync should use `updated_at` and `last_synced_at` style reconciliation.
-- Shared-row conflicts should resolve deterministically.
-- Realtime should feed local state, not bypass it.
+- Pure Firebase — do not add another backend.
+- Username search stays prefix-based on `username_lower`.
+- Guest mode stays offline-capable.
+- Demo-safe over production-hardened: client-side credit-score writes are acceptable while on Spark.
+- Don't write to `users` / `user_profiles` / `username_claims` outside `user_records.dart`.
 
-Until that migration exists:
-- do not add more direct Supabase access in screens
-- avoid expanding controller-level table access if a repository boundary can be introduced instead
-- treat existing direct Supabase calls as transition-state code, not the desired end state
+## Web build & deploy
 
-## UI And Design
-- Primary color: soft green — `Color(0xFF4CAF7D)`
-- Background: white or light grey — no dark mode unless asked
-- Cards: `BorderRadius.circular(16)`, subtle box shadow
-- Typography: minimal — only show text that earns its place
-- Icons: `lucide_icons_flutter` first, Material Icons only if lucide lacks the icon
-- Layout: mobile-first, use `LayoutBuilder` or `MediaQuery` for responsive breakpoints
-- Padding: multiples of 8px throughout
-- No hardcoded pixel widths for content — use flex, constraints, or percentages
+The same Flutter codebase runs on the web. Firebase Hosting is wired in `firebase.json` and `.firebaserc` points at the `moni-624c6` project.
 
-## Features In Scope
-1. Income and expense logging (add, edit, soft-delete transactions)
-2. Debt tracking — borrow, lend, settle between friends
-3. Statistics screen — pie chart by category, income vs expense totals
-4. Profile dashboard — display name, currency preference, sign out
-5. Inbox — friend requests, debt requests, settlement requests
+- Local dev: `flutter run -d chrome`
+- Release build: `flutter build web --release --no-tree-shake-icons` (the `--no-tree-shake-icons` flag is required — `lucide_icons_flutter` uses non-const `IconData`, which trips Flutter's tree-shaker).
+- Deploy: `firebase deploy --only hosting` (deploys `build/web/` to `https://moni-624c6.web.app`).
+- `https://moni-624c6.web.app` and `https://moni-624c6.firebaseapp.com` are automatically authorized for Firebase Auth. If you deploy under a custom domain, add it under Authentication → Settings → Authorized domains.
 
-## What Not To Do
-- Do not claim the app is offline-first — it is not yet.
-- Do not add features outside the scope list above unless asked.
-- Do not query Supabase directly from screens — go through a provider or controller.
-- Do not hardcode UI in `main.dart`.
-- Do not refactor working code while fixing a bug — fix only what is broken.
-- Do not add comments that just describe what the code does.
-- Do not hard-delete rows — always soft-delete via `deleted_at`.
-- Do not add Firebase or another backend.
-- Do not bypass Riverpod for feature state.
+Known web limitations (build succeeds, but feature degrades at runtime):
 
-## File Naming
-Preferred naming moving forward:
-- Screens: `*_screen.dart`
-- Widgets: descriptive name or `*_widget.dart`
-- Notifiers: `*_notifier.dart`
-- Providers: `*_provider.dart`
-- DAOs: `*_dao.dart`
-- Drift tables: `*_table.dart`
-- Repository interfaces: `*_repository.dart` (in domain)
-- Repository implementations: `*_repository_impl.dart` (in data)
-- Models: singular noun — `transaction.dart`, `debt.dart`, `app_user.dart`
+- Bank-slip QR verification (`SlipVerificationService.readQrPayload`) goes through `mobile_scanner`. On web, `image_picker` returns an `XFile` whose `path` is a blob URL, which `MobileScannerController.analyzeImage` cannot decode — the verify-receipt flow will throw. Use cash settlement on web, or fall back to the mobile app.
+- Drift uses `connection_web.dart` (the legacy `package:drift/web.dart` IndexedDB backend) — fine for now because there are no tables, but if Drift is ever adopted, migrate to `drift_flutter` + `sqlite3.wasm`.
 
-Existing files do not all follow this yet. Do not rename broad swaths of files unless requested.
+## Known gaps / follow-up
 
-## Code Generation
-Run after any change to Drift tables, DAOs, or Freezed models:
-```
-flutter pub run build_runner build --delete-conflicting-outputs
-```
-Generated files (`*.freezed.dart`, `*.g.dart`) are committed to the repo.
-
-## Review Priorities
-When reviewing or modifying this repo, prioritize:
-- runtime breakage over style
-- architecture regressions over superficial cleanup
-- places where current code contradicts the intended offline-first direction
-- silent error swallowing and brittle state assumptions
-- expanding direct Supabase access in places that should have a repository boundary
+- `lib/firebase_options.dart` is incomplete for Windows / macOS / Linux — run `flutterfire configure` if you need those platforms.
+- Functions are written but undeployed (needs Blaze).
+- `lib/data/repositories/` and `lib/data/sync/` are empty placeholders.
+- Drift is wired but has zero tables — either adopt it or remove it.
+- Freezed is a dependency but no model uses it; models are hand-written.
+- Tests cover only the credit-score calculator.

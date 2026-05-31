@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 enum TransactionType { income, expense }
@@ -14,17 +15,17 @@ class TransactionModel {
     this.note,
   });
 
-  factory TransactionModel.fromJson(Map<String, dynamic> json) {
+  factory TransactionModel.fromMap(String id, Map<String, dynamic> data) {
     return TransactionModel(
-      id: json['id'] as String,
-      category: json['category'] as String,
-      account: json['account'] as String,
-      amount: (json['amount'] as num).toDouble(),
-      type: json['type'] == 'income'
+      id: id,
+      category: data['category'] as String? ?? '',
+      account: data['account'] as String? ?? '',
+      amount: (data['amount'] as num?)?.toDouble() ?? 0,
+      type: data['type'] == 'income'
           ? TransactionType.income
           : TransactionType.expense,
-      date: DateTime.parse(json['date'] as String),
-      note: json['note'] as String?,
+      date: _readDate(data['date']),
+      note: data['note'] as String?,
     );
   }
 
@@ -38,16 +39,15 @@ class TransactionModel {
 
   bool get isIncome => type == TransactionType.income;
 
-  Map<String, dynamic> toJson(String userId) {
+  Map<String, dynamic> toMap() {
     return {
-      'id': id,
-      'user_id': userId,
       'type': type == TransactionType.income ? 'income' : 'expense',
       'category': category,
       'account': account,
       'amount': amount,
       'note': note,
-      'date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+      'date': Timestamp.fromDate(DateTime.utc(date.year, date.month, date.day)),
+      'updated_at': FieldValue.serverTimestamp(),
     };
   }
 
@@ -69,5 +69,18 @@ class TransactionModel {
       date: date ?? this.date,
       note: note ?? this.note,
     );
+  }
+
+  static DateTime _readDate(Object? value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    if (value is String) {
+      return DateTime.parse(value);
+    }
+    return DateTime.now();
   }
 }

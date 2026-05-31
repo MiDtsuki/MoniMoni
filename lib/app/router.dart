@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/providers/session_providers.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/signup_page.dart';
 import '../features/debts/presentation/debt_detail_page.dart';
@@ -15,13 +16,13 @@ import '../features/profile/presentation/profile_page.dart';
 import '../features/stats/presentation/stats_page.dart';
 import '../features/transactions/presentation/transaction_form_page.dart';
 import '../features/transactions/presentation/transaction_list_page.dart';
-import '../data/local/db_test_page.dart';
+import '../data/local/db_test_page_stub.dart'
+    if (dart.library.io) '../data/local/db_test_page.dart';
 
 class _AuthChangeNotifier extends ChangeNotifier {
   _AuthChangeNotifier() {
-    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
-      notifyListeners();
-    });
+    FirebaseAuth.instance.authStateChanges().listen((_) => notifyListeners());
+    guestSession.addListener(notifyListeners);
   }
 }
 
@@ -31,12 +32,16 @@ final appRouter = GoRouter(
   initialLocation: '/login',
   refreshListenable: _authNotifier,
   redirect: (context, state) {
-    final loggedIn =
-        Supabase.instance.client.auth.currentSession != null;
-    final isAuthRoute = state.matchedLocation == '/login' ||
-        state.matchedLocation == '/signup';
-    if (!loggedIn && !isAuthRoute) return '/login';
-    if (loggedIn && isAuthRoute) return '/logs';
+    final loggedIn = FirebaseAuth.instance.currentUser != null;
+    final isGuest = guestSession.isGuest;
+    final isAuthRoute =
+        state.matchedLocation == '/login' || state.matchedLocation == '/signup';
+    if (!loggedIn && !isGuest && !isAuthRoute) {
+      return '/login';
+    }
+    if ((loggedIn || isGuest) && isAuthRoute) {
+      return '/logs';
+    }
     return null;
   },
   routes: [
@@ -143,10 +148,7 @@ class MoniShell extends ConsumerWidget {
         child: NavigationBar(
           selectedIndex: navigationShell.currentIndex,
           onDestinationSelected: (index) {
-            navigationShell.goBranch(
-              index,
-              initialLocation: index == navigationShell.currentIndex,
-            );
+            navigationShell.goBranch(index, initialLocation: true);
           },
           destinations: [
             const NavigationDestination(

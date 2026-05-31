@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../core/utils/currency_formatter.dart';
 import '../../../../core/widgets/moni_card.dart';
+import '../../../profile/application/profile_settings_controller.dart';
 import '../../domain/transaction_model.dart';
 
-class TransactionTile extends StatelessWidget {
+class TransactionTile extends ConsumerWidget {
   const TransactionTile({required this.transaction, super.key});
 
   final TransactionModel transaction;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbol = ref.watch(currencySymbolProvider);
     final isIncome = transaction.isIncome;
     final color = isIncome ? MoniTheme.primaryGreen : const Color(0xFF202722);
 
@@ -47,7 +50,7 @@ class TransactionTile extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${isIncome ? '+' : '-'}${CurrencyFormatter.compact(transaction.amount)}',
+                      '${isIncome ? '+' : '-'}${CurrencyFormatter.compact(transaction.amount, symbol)}',
                       style: TextStyle(
                         color: color,
                         fontWeight: FontWeight.w900,

@@ -1,21 +1,28 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/firebase/user_records.dart';
+import '../../../core/providers/firebase_providers.dart';
+import '../../debts/application/debt_controller.dart';
+import '../../debts/application/friends_controller.dart';
+import '../../profile/application/profile_settings_controller.dart';
+import '../../transactions/application/transaction_controller.dart';
 import 'login_page.dart';
 
-class SignupPage extends StatefulWidget {
+class SignupPage extends ConsumerStatefulWidget {
   const SignupPage({super.key});
 
   @override
-  State<SignupPage> createState() => _SignupPageState();
+  ConsumerState<SignupPage> createState() => _SignupPageState();
 }
 
-class _SignupPageState extends State<SignupPage> {
+class _SignupPageState extends ConsumerState<SignupPage> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
+  final _fullNameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -25,7 +32,7 @@ class _SignupPageState extends State<SignupPage> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _fullNameController.dispose();
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -44,7 +51,7 @@ class _SignupPageState extends State<SignupPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextFormField(
-              controller: _nameController,
+              controller: _fullNameController,
               textInputAction: TextInputAction.next,
               autofillHints: const [AutofillHints.name],
               decoration: const InputDecoration(
@@ -53,7 +60,7 @@ class _SignupPageState extends State<SignupPage> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return 'Enter your name';
+                  return 'Enter your full name';
                 }
                 return null;
               },
@@ -69,8 +76,8 @@ class _SignupPageState extends State<SignupPage> {
               validator: (value) {
                 final username = value?.trim() ?? '';
                 if (username.isEmpty) return 'Choose a username';
-                if (username.length < 3) {
-                  return 'Username must be at least 3 characters';
+                if (!isValidUsername(username)) {
+                  return 'Use 3-20 lowercase letters, numbers, or underscores';
                 }
                 return null;
               },
@@ -155,57 +162,79 @@ class _SignupPageState extends State<SignupPage> {
     setState(() => _loading = true);
 
     try {
-      final response = await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
+      final auth = ref.read(firebaseAuthProvider);
+      final db = ref.read(firestoreProvider);
+      final fullName = _fullNameController.text.trim();
+      final username = _usernameController.text.trim();
+      final email = _emailController.text.trim();
+
+      final credential = await auth.createUserWithEmailAndPassword(
+        email: email,
         password: _passwordController.text,
-        data: {
-          'display_name': _nameController.text.trim(),
-          'username': _usernameController.text.trim(),
-        },
       );
-
-      if (!mounted) return;
-
-      if (response.session != null) {
-        // Email confirmation disabled — logged in immediately
-        context.go('/logs');
-      } else {
-        // Email confirmation required
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Check your email to confirm your account.'),
-            duration: Duration(seconds: 6),
-          ),
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-created',
+          message: 'Could not create the account.',
         );
-        context.go('/login');
       }
-    } on AuthException catch (e) {
-      debugPrint('=== SIGNUP AuthException ===');
-      debugPrint('message: ${e.message}');
-      debugPrint('statusCode: ${e.statusCode}');
-      debugPrint('===========================');
+
+      await user.updateDisplayName(username);
+      await createAccountRecords(
+        db: db,
+        user: user,
+        fullName: fullName,
+        username: username,
+        email: email,
+        currencyCode: defaultCurrency.code,
+      );
+
+      _invalidateAccountProviders();
+      if (mounted) context.go('/logs');
+    } on UsernameTakenException {
+      await ref.read(firebaseAuthProvider).currentUser?.delete();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('[${e.statusCode}] ${e.message}'),
-          duration: const Duration(seconds: 10),
+        const SnackBar(
+          content: Text('That username is already taken.'),
+          duration: Duration(seconds: 8),
         ),
       );
-    } catch (e, stack) {
-      debugPrint('=== SIGNUP Unexpected error ===');
-      debugPrint('$e');
-      debugPrint('$stack');
-      debugPrint('==============================');
+    } on UsernameFormatException catch (e) {
+      await ref.read(firebaseAuthProvider).currentUser?.delete();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$e'),
-          duration: const Duration(seconds: 10),
+          content: Text(e.toString()),
+          duration: const Duration(seconds: 8),
         ),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'Could not create the account.'),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), duration: const Duration(seconds: 8)),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _invalidateAccountProviders() {
+    ref
+      ..invalidate(currentUserProvider)
+      ..invalidate(transactionControllerProvider)
+      ..invalidate(debtControllerProvider)
+      ..invalidate(friendsControllerProvider)
+      ..invalidate(profileSettingsProvider);
   }
 }
 
