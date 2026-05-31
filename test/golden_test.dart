@@ -10,7 +10,9 @@ import 'package:moni/features/credit_score/presentation/credit_score_card.dart';
 import 'package:moni/features/debts/domain/debt_model.dart';
 import 'package:moni/features/debts/presentation/widgets/debt_tile.dart';
 import 'package:moni/features/profile/application/profile_settings_controller.dart';
+import 'package:moni/features/stats/presentation/stats_page.dart';
 import 'package:moni/features/transactions/domain/transaction_model.dart';
+import 'package:moni/features/transactions/application/transaction_controller.dart';
 import 'package:moni/features/transactions/presentation/widgets/transaction_tile.dart';
 
 // Wraps a widget in MaterialApp with the Moni theme and a padded scaffold.
@@ -250,6 +252,40 @@ void main() {
     await expectLater(
       find.byType(DebtTransactionCard),
       matchesGoldenFile('goldens/debt_tile_borrow_settled.png'),
+    );
+  });
+
+  // ── StatsPage (Monthly / Yearly toggle) ───────────────────────────────────
+  // Uses signedOut controller so no Firebase needed — shows the empty state
+  // with the new view-mode toggle and nav bar clearly visible.
+
+  Widget statsScope(Widget child) => ProviderScope(
+    overrides: [
+      transactionControllerProvider.overrideWith(
+        (ref) => TransactionController.signedOut(ref),
+      ),
+      currencySymbolProvider.overrideWithValue('฿'),
+    ],
+    child: MaterialApp(theme: MoniTheme.light, home: child),
+  );
+
+  testWidgets('stats_page_monthly_view', (tester) async {
+    await tester.pumpWidget(statsScope(const StatsPage()));
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(StatsPage),
+      matchesGoldenFile('goldens/stats_page_monthly_view.png'),
+    );
+  });
+
+  testWidgets('stats_page_yearly_view', (tester) async {
+    await tester.pumpWidget(statsScope(const StatsPage()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yearly'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await expectLater(
+      find.byType(StatsPage),
+      matchesGoldenFile('goldens/stats_page_yearly_view.png'),
     );
   });
 }

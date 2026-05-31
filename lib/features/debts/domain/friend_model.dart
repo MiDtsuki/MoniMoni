@@ -11,10 +11,11 @@ class FriendModel {
   });
 
   factory FriendModel.fromMap(String id, Map<String, dynamic> data) {
+    final username = data['username'] as String? ?? '';
     return FriendModel(
       id: id,
-      name: data['display_name'] as String? ?? '',
-      username: data['username'] as String? ?? '',
+      name: username,
+      username: username,
     );
   }
 

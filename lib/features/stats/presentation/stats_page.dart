@@ -11,6 +11,8 @@ import '../../profile/application/profile_settings_controller.dart';
 import '../../transactions/application/transaction_controller.dart';
 import '../../transactions/domain/transaction_model.dart';
 
+enum _ViewMode { monthly, yearly }
+
 class StatsPage extends ConsumerStatefulWidget {
   const StatsPage({super.key});
 
@@ -21,27 +23,33 @@ class StatsPage extends ConsumerStatefulWidget {
 class _StatsPageState extends ConsumerState<StatsPage> {
   late DateTime _selectedMonth;
   var _selectedType = TransactionType.expense;
+  var _viewMode = _ViewMode.monthly;
+  late int _selectedYear;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _selectedMonth = DateTime(now.year, now.month);
+    _selectedYear = now.year;
   }
 
   @override
   Widget build(BuildContext context) {
     final transactions = ref.watch(transactionControllerProvider);
-    final monthTransactions = transactions.where((transaction) {
-      return transaction.date.year == _selectedMonth.year &&
-          transaction.date.month == _selectedMonth.month;
+    final filtered = transactions.where((t) {
+      if (_viewMode == _ViewMode.monthly) {
+        return t.date.year == _selectedMonth.year &&
+            t.date.month == _selectedMonth.month;
+      }
+      return t.date.year == _selectedYear;
     }).toList();
     final incomeGroups = _categoryTotals(
-      monthTransactions,
+      filtered,
       TransactionType.income,
     );
     final expenseGroups = _categoryTotals(
-      monthTransactions,
+      filtered,
       TransactionType.expense,
     );
     final totalIncome = _sum(incomeGroups);
@@ -72,12 +80,35 @@ class _StatsPageState extends ConsumerState<StatsPage> {
                     sliver: SliverToBoxAdapter(
                       child: Column(
                         children: [
-                          _MonthBar(
-                            month: _selectedMonth,
-                            onPrevious: () => _moveMonth(-1),
-                            onNext: () => _moveMonth(1),
-                            onTapMonth: _pickMonth,
+                          SegmentedButton<_ViewMode>(
+                            segments: const [
+                              ButtonSegment(
+                                value: _ViewMode.monthly,
+                                label: Text('Monthly'),
+                              ),
+                              ButtonSegment(
+                                value: _ViewMode.yearly,
+                                label: Text('Yearly'),
+                              ),
+                            ],
+                            selected: {_viewMode},
+                            onSelectionChanged: (s) =>
+                                setState(() => _viewMode = s.first),
                           ),
+                          const SizedBox(height: 14),
+                          if (_viewMode == _ViewMode.monthly)
+                            _MonthBar(
+                              month: _selectedMonth,
+                              onPrevious: () => _moveMonth(-1),
+                              onNext: () => _moveMonth(1),
+                              onTapMonth: _pickMonth,
+                            )
+                          else
+                            _YearBar(
+                              year: _selectedYear,
+                              onPrevious: () => _moveYear(-1),
+                              onNext: () => _moveYear(1),
+                            ),
                           const SizedBox(height: 22),
                           _StatsTabs(
                             selectedType: _selectedType,
@@ -97,9 +128,9 @@ class _StatsPageState extends ConsumerState<StatsPage> {
                       child: entries.isEmpty
                           ? EmptyState(
                               title:
-                                  'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} this month',
+                                  'No ${_selectedType == TransactionType.income ? 'income' : 'expenses'} ${_viewMode == _ViewMode.monthly ? 'this month' : 'this year'}',
                               message:
-                                  'Add transactions in ${DateFormat('MMMM yyyy').format(_selectedMonth)} to see category statistics.',
+                                  'Add transactions ${_viewMode == _ViewMode.monthly ? 'in ${DateFormat('MMMM yyyy').format(_selectedMonth)}' : 'in $_selectedYear'} to see category statistics.',
                               icon: LucideIcons.chartPie,
                             )
                           : LayoutBuilder(
@@ -155,6 +186,8 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       );
     });
   }
+
+  void _moveYear(int delta) => setState(() => _selectedYear += delta);
 
   Future<void> _pickMonth() async {
     final picked = await _showAdaptiveMonthPicker();
@@ -257,6 +290,44 @@ class _MonthBar extends StatelessWidget {
         ),
         IconButton(
           tooltip: 'Next month',
+          onPressed: onNext,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    );
+  }
+}
+
+class _YearBar extends StatelessWidget {
+  const _YearBar({
+    required this.year,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int year;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Previous year',
+          onPressed: onPrevious,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Expanded(
+          child: Center(
+            child: Text(
+              '$year',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Next year',
           onPressed: onNext,
           icon: const Icon(Icons.chevron_right),
         ),

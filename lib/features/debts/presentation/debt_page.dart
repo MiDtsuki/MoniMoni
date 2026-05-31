@@ -667,7 +667,7 @@ class _AddFriendDialogState extends ConsumerState<_AddFriendDialog> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(user.name),
-                  subtitle: Text(user.username),
+                  subtitle: Text('@${user.username}'),
                   trailing: TextButton(
                     onPressed: () {
                       ref

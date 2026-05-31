@@ -150,7 +150,7 @@ class _DebtDetailPageState extends ConsumerState<DebtDetailPage> {
     return Scaffold(
       body: AppPage(
         title: friend.name,
-        subtitle: friend.username,
+        subtitle: '@${friend.username}',
         onRefresh: () async {
           await Future.wait([
             ref.read(debtControllerProvider.notifier).refresh(),

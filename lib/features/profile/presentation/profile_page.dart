@@ -550,7 +550,7 @@ class _AddFriendSectionState extends ConsumerState<_AddFriendSection> {
                   child: Icon(LucideIcons.userRoundPlus),
                 ),
                 title: Text(user.name),
-                subtitle: Text(user.username),
+                subtitle: Text('@${user.username}'),
                 trailing: TextButton(
                   onPressed: () {
                     ref

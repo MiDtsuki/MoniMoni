@@ -160,8 +160,8 @@ class ProfileSettingsController extends StateNotifier<ProfileSettings> {
         state = ProfileSettings(
           currency: currency,
           displayName:
+              privateRow['full_name'] as String? ??
               profileRow['username'] as String? ??
-              profileRow['display_name'] as String? ??
               '',
           username: profileRow['username'] as String? ?? '',
           creditScore: creditScore,
