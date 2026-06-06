@@ -236,10 +236,10 @@ const defaultCurrency = CurrencyOption(
 
 const supportedCurrencies = [
   defaultCurrency,
-  CurrencyOption(code: 'EUR', symbol: 'EUR', name: 'Euro'),
-  CurrencyOption(code: 'GBP', symbol: 'GBP', name: 'British Pound'),
-  CurrencyOption(code: 'JPY', symbol: 'JPY', name: 'Japanese Yen'),
-  CurrencyOption(code: 'THB', symbol: 'THB', name: 'Thai Baht'),
+  CurrencyOption(code: 'EUR', symbol: '€', name: 'Euro'),
+  CurrencyOption(code: 'GBP', symbol: '£', name: 'British Pound'),
+  CurrencyOption(code: 'JPY', symbol: '¥', name: 'Japanese Yen'),
+  CurrencyOption(code: 'THB', symbol: '฿', name: 'Thai Baht'),
   CurrencyOption(code: 'MMK', symbol: 'K', name: 'Myanmar Kyat'),
-  CurrencyOption(code: 'SGD', symbol: 'SGD', name: 'Singapore Dollar'),
+  CurrencyOption(code: 'SGD', symbol: 'S\$', name: 'Singapore Dollar'),
 ];

@@ -426,7 +426,7 @@ class _SettingsSection extends ConsumerWidget {
               ),
             ),
             title: const Text('Currency'),
-            subtitle: Text('${currency.code} · ${currency.name}'),
+            subtitle: Text('${currency.symbol} · ${currency.name}'),
             trailing: Text(
               currency.symbol,
               style: Theme.of(context).textTheme.titleLarge,
@@ -471,7 +471,7 @@ class _SettingsSection extends ConsumerWidget {
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
-                      title: Text('${option.code} · ${option.name}'),
+                      title: Text('${option.symbol} · ${option.name}'),
                       trailing: option.code == currency.code
                           ? const Icon(
                               LucideIcons.check,
